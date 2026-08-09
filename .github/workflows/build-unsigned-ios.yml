@@ -32,7 +32,7 @@ jobs:
         id: detect
         run: |
           cd ios
-          WS=$(ls *.xcworkspace | head -1)
+          WS=$(ls -d *.xcworkspace 2>/dev/null | head -1)
           SCHEME=$(xcodebuild -list -workspace "$WS" | awk -F': ' '/Schemes:/{f=1; next} f && NF{print $1; exit}')
           echo "workspace=$WS"
           echo "scheme=$SCHEME"
