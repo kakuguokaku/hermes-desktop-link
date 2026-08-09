@@ -33,7 +33,7 @@ jobs:
         run: |
           cd ios
           WS=$(ls -d *.xcworkspace 2>/dev/null | head -1)
-          SCHEME=$(xcodebuild -list -workspace "$WS" | awk -F': ' '/Schemes:/{f=1; next} f && NF{print $1; exit}')
+          SCHEME=$(echo "${WS%.xcworkspace}")
           echo "workspace=$WS"
           echo "scheme=$SCHEME"
           echo "workspace=$WS" >> "$GITHUB_OUTPUT"
