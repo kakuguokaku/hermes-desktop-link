@@ -97,11 +97,11 @@ export default function ChatScreen() {
 
   const listRef = useRef<FlatList<Message>>(null);
   const streamRef = useRef<StreamHandle | null>(null);
-  const pendingSession = useRef<string | null>(null);
   const sessionIdRef = useRef<string | null>(sessionId);
   sessionIdRef.current = sessionId;
   const streamingRef = useRef(streaming);
   streamingRef.current = streaming;
+  const stickToBottom = useRef(true); // 贴底跟随：用户上翻历史时不强制拉回
 
   // 初始化：配置、模型、会话内容、WS
   useEffect(() => {
@@ -194,7 +194,6 @@ export default function ChatScreen() {
     (text: string) => {
       if (!config || streamingRef.current) return;
       const ph = sessionIdRef.current || `app-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      pendingSession.current = ph;
       setMessages((prev) => [
         ...prev,
         { id: null, role: 'user', content: text, createdAt: null },
@@ -292,9 +291,17 @@ export default function ChatScreen() {
           <FlatList
             ref={listRef}
             data={messages}
-            keyExtractor={(_, i) => String(i)}
+            keyExtractor={(item, i) => item.id ?? `${item.role}-${i}`}
             contentContainerStyle={styles.list}
-            onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
+            onScroll={({ nativeEvent }) => {
+              const { contentOffset, contentSize, layoutMeasurement } = nativeEvent;
+              stickToBottom.current =
+                contentSize.height - contentOffset.y - layoutMeasurement.height < 60;
+            }}
+            scrollEventThrottle={100}
+            onContentSizeChange={() => {
+              if (stickToBottom.current) listRef.current?.scrollToEnd({ animated: false });
+            }}
             ListEmptyComponent={
               <View style={styles.empty}>
                 <Ionicons name="chatbubble-ellipses-outline" size={36} color={colors.textFaint} />

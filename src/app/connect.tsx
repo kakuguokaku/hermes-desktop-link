@@ -97,7 +97,7 @@ export default function ConnectScreen() {
           <AppLogo width={200} />
         </View>
         <Text style={styles.title}>连接你的电脑</Text>
-        <Text style={styles.subtitle}>Hermes Desktop Link 通过你的电脑访问 Hermes</Text>
+        <Text style={styles.subtitle}>KAKU Hermes 通过你的电脑访问 Hermes</Text>
 
         <View style={styles.card}>
           <Text style={styles.label}>电脑地址</Text>

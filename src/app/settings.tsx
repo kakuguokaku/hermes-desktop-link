@@ -196,11 +196,11 @@ export default function SettingsScreen() {
           <AppLogo width={150} />
         </View>
         <View style={styles.rowBetween}>
-          <Text style={styles.label}>Hermes Desktop Link</Text>
+          <Text style={styles.label}>KAKU Hermes</Text>
           <Text style={styles.value}>v0.1.0</Text>
         </View>
         <Text style={styles.note}>
-          手机端访问你电脑上的 Hermes Desktop。对话与电脑端实时同步，支持模型切换与语音输入。
+          手机端访问你电脑上的 Hermes。对话与电脑端实时同步，支持模型切换与语音输入。
         </Text>
       </View>
     </ScrollView>
