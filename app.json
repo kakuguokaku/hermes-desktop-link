@@ -12,7 +12,11 @@
       "bundleIdentifier": "com.kaku.hermesdesktoplink",
       "infoPlist": {
         "NSMicrophoneUsageDescription": "用于语音输入发送消息",
-        "NSSpeechRecognitionUsageDescription": "Allow $(PRODUCT_NAME) to use speech recognition."
+        "NSSpeechRecognitionUsageDescription": "Allow $(PRODUCT_NAME) to use speech recognition.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        },
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
