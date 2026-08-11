@@ -1,7 +1,7 @@
-// src/components/markdown.tsx —— 极简 VK 风格 markdown 渲染（明暗自适应）
+// src/components/markdown.tsx —— 极简 VK 风格 markdown 渲染（明暗自适应，文字可长按选择复制）
 import React, { useMemo } from 'react';
-import { StyleSheet } from 'react-native';
-import Markdown from 'react-native-markdown-display';
+import { StyleSheet, Text } from 'react-native';
+import Markdown, { renderRules } from 'react-native-markdown-display';
 import { font, type Colors } from '../lib/theme';
 import { useTheme } from '../lib/theme-context';
 
@@ -52,5 +52,26 @@ const createStyles = (colors: Colors) =>
 export function MarkdownText({ children }: { children: string }) {
   const colors = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
-  return <Markdown style={styles}>{children}</Markdown>;
+  // 覆盖 text 规则：所有文本可长按选择复制
+  const rules = useMemo(
+    () => ({
+      ...renderRules,
+      text: (node: any, c: any, p: any, s: any, inherited: any = {}) => (
+        <Text key={node.key} selectable style={[inherited, s.text]}>
+          {node.content}
+        </Text>
+      ),
+      textgroup: (node: any, c: any, p: any, s: any) => (
+        <Text key={node.key} selectable style={s.textgroup}>
+          {c}
+        </Text>
+      ),
+    }),
+    []
+  );
+  return (
+    <Markdown style={styles} rules={rules}>
+      {children}
+    </Markdown>
+  );
 }

@@ -105,7 +105,7 @@ export default function ConnectScreen() {
             style={styles.input}
             value={baseUrl}
             onChangeText={setBaseUrl}
-            placeholder="http://100.x.x.x:8787"
+            placeholder="http://www.你的域名.com:8787"
             placeholderTextColor={colors.textMuted}
             autoCapitalize="none"
             autoCorrect={false}
@@ -137,18 +137,14 @@ export default function ConnectScreen() {
         </View>
 
         <View style={styles.hintCard}>
-          <Text style={styles.hintTitle}>怎么找到这些信息？</Text>
+          <Text style={styles.hintTitle}>怎么填这些信息？</Text>
           <View style={styles.hintRow}>
             <Ionicons name="desktop-outline" size={16} color={colors.accent} />
-            <Text style={styles.hintText}>在电脑上：双击 bridge/start.bat 启动桥接服务，终端会显示 Token</Text>
-          </View>
-          <View style={styles.hintRow}>
-            <Ionicons name="git-network-outline" size={16} color={colors.accent} />
-            <Text style={styles.hintText}>电脑地址 = Tailscale 面板里电脑的 IP（形如 100.x.x.x），端口 8787</Text>
+            <Text style={styles.hintText}>电脑地址 = 你域名的地址（如 http://www.你的域名.com:8787），任何网络都能用</Text>
           </View>
           <View style={styles.hintRow}>
             <Ionicons name="shield-checkmark-outline" size={16} color={colors.accent} />
-            <Text style={styles.hintText}>手机和电脑需在同一 Tailscale 网络内</Text>
+            <Text style={styles.hintText}>口令：桥接服务启动时显示的 Token（bridge/config.json 里也有）</Text>
           </View>
         </View>
       </ScrollView>

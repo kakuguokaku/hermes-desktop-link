@@ -75,7 +75,9 @@ export function MessageBubble({
         ]}
       >
         {isUser ? (
-          <Text style={styles.userText}>{message.content}</Text>
+          <Text selectable style={styles.userText}>
+            {message.content}
+          </Text>
         ) : (
           <MarkdownText>{message.content || (isStreaming ? '' : '(空回复)')}</MarkdownText>
         )}
