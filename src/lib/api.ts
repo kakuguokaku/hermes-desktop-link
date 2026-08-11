@@ -13,12 +13,45 @@ export type SessionSummary = {
 export type Message = { id: string | null; role: 'user' | 'assistant'; content: string; createdAt: string | null };
 export type SessionDetail = { session: SessionSummary; messages: Message[] };
 
+// ---------- 智能地址：自动连接时先探内网（2s 超时），不可用则走外网 ----------
+let activeCache: { key: string; baseUrl: string; at: number } | null = null;
+
+/** 探测某地址是否可达（可选带 token 校验）。2.5s 超时。 */
+export function probeHealth(baseUrl: string, token?: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 2500);
+    fetch(`${baseUrl}/api/health`, {
+      signal: ctrl.signal,
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    })
+      .then((r) => resolve(r.ok))
+      .catch(() => resolve(false))
+      .finally(() => clearTimeout(t));
+  });
+}
+
+/** 解析当前应使用的 baseUrl：配置了内网且可达则用内网，否则用外网。缓存 30s。 */
+export async function resolveActiveBaseUrl(c: ConnConfig): Promise<string> {
+  const key = `${c.baseUrl}|${c.lanBaseUrl || ''}`;
+  if (activeCache && activeCache.key === key && Date.now() - activeCache.at < 30000) {
+    return activeCache.baseUrl;
+  }
+  let active = c.baseUrl;
+  if (c.lanBaseUrl && c.lanBaseUrl !== c.baseUrl) {
+    if (await probeHealth(c.lanBaseUrl, c.token)) active = c.lanBaseUrl;
+  }
+  activeCache = { key, baseUrl: active, at: Date.now() };
+  return active;
+}
+
 function headers(c: ConnConfig) {
   return { Authorization: `Bearer ${c.token}`, 'Content-Type': 'application/json' };
 }
 
 async function jfetch<T>(c: ConnConfig, path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${c.baseUrl}${path}`, {
+  const baseUrl = await resolveActiveBaseUrl(c);
+  const res = await fetch(`${baseUrl}${path}`, {
     ...init,
     headers: { ...headers(c), ...(init?.headers || {}) },
   });
@@ -66,37 +99,37 @@ export function openStream(c: ConnConfig, events: StreamEvents): StreamHandle {
   const connect = () => {
     if (stopped) return;
     events.onStatus?.('connecting');
-    try {
-      const wsUrl = c.baseUrl.replace(/^http/, 'ws');
-      ws = new WebSocket(`${wsUrl}/ws?token=${encodeURIComponent(c.token)}`);
-    } catch {
-      schedule();
-      return;
-    }
-    ws.onopen = () => {
-      retry = 0;
-      events.onStatus?.('open');
-    };
-    ws.onmessage = (e) => {
-      let ev: any;
-      try {
-        ev = JSON.parse(typeof e.data === 'string' ? e.data : '');
-      } catch {
-        return;
-      }
-      if (ev.type === 'message.delta') events.onDelta(ev.sessionId, ev.delta);
-      else if (ev.type === 'message.complete') events.onComplete(ev.sessionId);
-      else if (ev.type === 'message.error') events.onError(ev.sessionId, ev.error);
-    };
-    ws.onclose = () => {
-      events.onStatus?.('closed');
-      if (!stopped) schedule();
-    };
-    ws.onerror = () => {
-      try {
-        ws?.close();
-      } catch {}
-    };
+    resolveActiveBaseUrl(c)
+      .then((baseUrl) => {
+        if (stopped) return;
+        const wsUrl = baseUrl.replace(/^http/, 'ws');
+        ws = new WebSocket(`${wsUrl}/ws?token=${encodeURIComponent(c.token)}`);
+        ws.onopen = () => {
+          retry = 0;
+          events.onStatus?.('open');
+        };
+        ws.onmessage = (e) => {
+          let ev: any;
+          try {
+            ev = JSON.parse(typeof e.data === 'string' ? e.data : '');
+          } catch {
+            return;
+          }
+          if (ev.type === 'message.delta') events.onDelta(ev.sessionId, ev.delta);
+          else if (ev.type === 'message.complete') events.onComplete(ev.sessionId);
+          else if (ev.type === 'message.error') events.onError(ev.sessionId, ev.error);
+        };
+        ws.onclose = () => {
+          events.onStatus?.('closed');
+          if (!stopped) schedule();
+        };
+        ws.onerror = () => {
+          try {
+            ws?.close();
+          } catch {}
+        };
+      })
+      .catch(() => schedule());
   };
 
   connect();

@@ -9,6 +9,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  SafeAreaView,
   StyleSheet,
   Text,
   View,
@@ -331,7 +332,7 @@ export default function ChatScreen() {
       {/* 历史对话面板：80% 宽度，剩余 20% 显示当前对话（阴影） */}
       <Modal visible={panelVisible} transparent animationType="fade" onRequestClose={() => setPanelVisible(false)}>
         <Pressable style={styles.panelBackdrop} onPress={() => setPanelVisible(false)}>
-          <Pressable style={styles.panel} onPress={() => {}} accessibilityLabel="历史面板">
+          <SafeAreaView style={styles.panel} onTouchStart={(e) => e.stopPropagation()}>
             {config ? (
               <ConversationList
                 config={config}
@@ -342,7 +343,7 @@ export default function ChatScreen() {
                 }}
               />
             ) : null}
-          </Pressable>
+          </SafeAreaView>
         </Pressable>
       </Modal>
     </View>

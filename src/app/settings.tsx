@@ -126,6 +126,17 @@ export default function SettingsScreen() {
             {config ? config.baseUrl.replace(/^http:\/\//, '') : '未配置'}
           </Text>
         </View>
+        {config?.lanBaseUrl ? (
+          <>
+            <View style={styles.divider} />
+            <View style={styles.rowBetween}>
+              <Text style={styles.label}>内网地址</Text>
+              <Text style={styles.value} numberOfLines={1}>
+                {config.lanBaseUrl.replace(/^http:\/\//, '')}
+              </Text>
+            </View>
+          </>
+        ) : null}
         <View style={styles.divider} />
         <View style={styles.rowBetween}>
           <Text style={styles.label}>状态</Text>

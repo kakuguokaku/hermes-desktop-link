@@ -1,4 +1,4 @@
-// src/lib/theme.ts —— VK.House 品牌设计规范（浅色 + 夜间 双套 token）
+// src/lib/theme.ts —— 品牌设计规范（浅色 + 夜间 双套 token）
 
 export type Colors = {
   bg: string;
@@ -21,7 +21,7 @@ export type Colors = {
   warningText: string;
 };
 
-// 浅色（默认，VK.House 浅色极简）
+// 浅色（默认，浅色极简）
 export const lightColors: Colors = {
   bg: '#F5F5F7',
   card: '#FFFFFF',

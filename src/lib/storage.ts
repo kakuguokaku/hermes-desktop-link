@@ -2,7 +2,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-export type ConnConfig = { baseUrl: string; token: string };
+export type ConnConfig = { baseUrl: string; token: string; lanBaseUrl?: string };
 export type DisplayMode = 'auto' | 'light' | 'dark';
 export type AppPrefs = { defaultModel?: string | null; displayMode?: DisplayMode };
 
