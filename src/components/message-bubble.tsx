@@ -6,6 +6,7 @@ import type { Message } from '../lib/api';
 import { font, radius, shadow, type Colors } from '../lib/theme';
 import { useTheme } from '../lib/theme-context';
 import { MarkdownText } from './markdown';
+import { hasMarkdown } from '../lib/markdown-detect';
 
 const createStyles = (colors: Colors) =>
   StyleSheet.create({
@@ -40,6 +41,7 @@ const createStyles = (colors: Colors) =>
       borderColor: colors.borderSubtle,
     },
     userText: { color: colors.card, fontSize: font.body, lineHeight: 22 },
+    assistantPlainText: { color: colors.textBody, fontSize: font.body, lineHeight: 22 },
     typing: { flexDirection: 'row', paddingVertical: 6 },
     dot: {
       width: 6,
@@ -53,13 +55,17 @@ const createStyles = (colors: Colors) =>
 export function MessageBubble({
   message,
   isStreaming,
+  onImagePress,
 }: {
   message: Message;
   isStreaming?: boolean;
+  onImagePress?: (uri: string) => void;
 }) {
   const colors = useTheme();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const isUser = message.role === 'user';
+  const fallback = message.content || (isStreaming ? '' : '(空回复)');
+  const plain = !hasMarkdown(fallback);
   return (
     <View style={[styles.row, isUser ? styles.rowUser : styles.rowAssistant]}>
       {!isUser && (
@@ -78,8 +84,12 @@ export function MessageBubble({
           <Text selectable style={styles.userText}>
             {message.content}
           </Text>
+        ) : plain ? (
+          <Text selectable style={styles.assistantPlainText}>
+            {fallback}
+          </Text>
         ) : (
-          <MarkdownText>{message.content || (isStreaming ? '' : '(空回复)')}</MarkdownText>
+          <MarkdownText onImagePress={onImagePress}>{fallback}</MarkdownText>
         )}
         {isStreaming && message.content.length === 0 && (
           <View style={styles.typing}>

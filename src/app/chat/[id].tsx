@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 import { ConversationList } from '../../components/conversation-list';
+import { ImageViewer } from '../../components/image-viewer';
 import { InputBar } from '../../components/input-bar';
 import { MessageBubble } from '../../components/message-bubble';
 import { ModelPicker } from '../../components/model-picker';
@@ -95,6 +96,10 @@ export default function ChatScreen() {
   const [online, setOnline] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [panelVisible, setPanelVisible] = useState(false);
+  const [viewer, setViewer] = useState<{ visible: boolean; uri: string | null }>({
+    visible: false,
+    uri: null,
+  });
 
   const listRef = useRef<FlatList<Message>>(null);
   const streamRef = useRef<StreamHandle | null>(null);
@@ -223,6 +228,8 @@ export default function ChatScreen() {
     savePrefs({ defaultModel: m.id });
   }, []);
 
+  const openImageViewer = useCallback((u: string) => setViewer({ visible: true, uri: u }), []);
+
   const shortModel = (s: string | null) => {
     if (!s) return '选择模型';
     const p = s.split('/').pop() || s;
@@ -293,6 +300,8 @@ export default function ChatScreen() {
             ref={listRef}
             data={messages}
             keyExtractor={(item, i) => item.id ?? `${item.role}-${i}`}
+            initialScrollIndex={messages.length > 0 ? messages.length - 1 : 0}
+            onScrollToIndexFailed={() => listRef.current?.scrollToEnd({ animated: false })}
             contentContainerStyle={styles.list}
             onScroll={({ nativeEvent }) => {
               const { contentOffset, contentSize, layoutMeasurement } = nativeEvent;
@@ -313,6 +322,7 @@ export default function ChatScreen() {
               <MessageBubble
                 message={item}
                 isStreaming={streaming && item.role === 'assistant' && item.content === ''}
+                onImagePress={openImageViewer}
               />
             )}
           />
@@ -327,6 +337,12 @@ export default function ChatScreen() {
         defaultModel={defaultModel}
         onClose={() => setPickerVisible(false)}
         onSelect={selectModel}
+      />
+
+      <ImageViewer
+        visible={viewer.visible}
+        uri={viewer.uri}
+        onClose={() => setViewer({ visible: false, uri: null })}
       />
 
       {/* 历史对话面板：80% 宽度，剩余 20% 显示当前对话（阴影） */}
