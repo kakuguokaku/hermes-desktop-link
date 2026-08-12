@@ -31,6 +31,21 @@ export function probeHealth(baseUrl: string, token?: string): Promise<boolean> {
   });
 }
 
+/** 探测需鉴权的端点，验证 token 是否有效。2.5s 超时。 */
+export function probeAuth(baseUrl: string, token: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 2500);
+    fetch(`${baseUrl}/api/models`, {
+      signal: ctrl.signal,
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => resolve(r.ok))
+      .catch(() => resolve(false))
+      .finally(() => clearTimeout(t));
+  });
+}
+
 /** 解析当前应使用的 baseUrl：配置了内网且可达则用内网，否则用外网。缓存 30s。 */
 export async function resolveActiveBaseUrl(c: ConnConfig): Promise<string> {
   const key = `${c.baseUrl}|${c.lanBaseUrl || ''}`;

@@ -13,7 +13,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { api, probeHealth } from '../lib/api';
+import { api, probeAuth, probeHealth } from '../lib/api';
 import { saveConfig } from '../lib/storage';
 import { font, radius, shadow, type Colors } from '../lib/theme';
 import { useTheme } from '../lib/theme-context';
@@ -110,8 +110,8 @@ export default function ConnectScreen() {
       const lanOk = await probeHealth(lan);
       if (lanOk) {
         setStep(0, 'ok');
-        // 用内网验证 token
-        if (await probeHealth(lan, tk)) {
+        // 用内网验证 token（/api/health 免认证验证不了，用需鉴权的 /api/models）
+        if (await probeAuth(lan, tk)) {
           setStep(1, 'pending');
           setStep(1, 'ok');
           await saveConfig({ baseUrl: url, token: tk, lanBaseUrl: lan });

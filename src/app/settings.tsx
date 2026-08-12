@@ -1,5 +1,6 @@
 // src/app/settings.tsx —— 设置页（极简，明暗自适应）
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
@@ -208,7 +209,7 @@ export default function SettingsScreen() {
         </View>
         <View style={styles.rowBetween}>
           <Text style={styles.label}>KAKU Hermes</Text>
-          <Text style={styles.value}>v0.1.0</Text>
+          <Text style={styles.value}>v{Constants.expoConfig?.version ?? ''}</Text>
         </View>
         <Text style={styles.note}>
           手机端访问你电脑上的 Hermes。对话与电脑端实时同步，支持模型切换与语音输入。
