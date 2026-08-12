@@ -21,12 +21,12 @@ import { MessageBubble } from '../../components/message-bubble';
 import { ModelPicker } from '../../components/model-picker';
 import {
   api,
-  openStream,
   type Message,
   type Model,
   type SessionDetail,
-  type StreamHandle,
 } from '../../lib/api';
+import { connection } from '../../lib/connection';
+import type { Status } from '../../lib/connection';
 import { getConfig, getPrefs, savePrefs, type ConnConfig } from '../../lib/storage';
 import { font, radius, type Colors } from '../../lib/theme';
 import { useTheme } from '../../lib/theme-context';
@@ -102,7 +102,6 @@ export default function ChatScreen() {
   });
 
   const listRef = useRef<FlatList<Message>>(null);
-  const streamRef = useRef<StreamHandle | null>(null);
   const sessionIdRef = useRef<string | null>(sessionId);
   sessionIdRef.current = sessionId;
   const streamingRef = useRef(streaming);
@@ -119,6 +118,7 @@ export default function ChatScreen() {
         return;
       }
       setConfig(cfg);
+      connection.ensureStarted(cfg);
       const prefs = await getPrefs();
       try {
         const m = await api.models(cfg);
@@ -158,11 +158,22 @@ export default function ChatScreen() {
     []
   );
 
-  // 单条全局 WS：状态 + 流式事件 + 发送
+  // 连接状态订阅：online 标识 + 重连成功后刷新会话（把断连期间消息拉回）
+  const prevConn = useRef<Status | null>(null);
+  useEffect(() => {
+    return connection.subscribe((s) => {
+      setOnline(s === 'open');
+      if (s === 'open' && prevConn.current && prevConn.current !== 'open' && config && sessionIdRef.current) {
+        refreshSession(config, sessionIdRef.current);
+      }
+      prevConn.current = s;
+    });
+  }, [config, refreshSession]);
+
+  // 流式事件注册（卸载时注销，连接本身保留）
   useEffect(() => {
     if (!config) return;
-    const handle = openStream(config, {
-      onStatus: (s) => setOnline(s === 'open'),
+    connection.setStreamHandlers({
       onDelta: (_sid, delta) => {
         if (!streamingRef.current) return;
         setMessages((prev) => {
@@ -189,11 +200,7 @@ export default function ChatScreen() {
         ]);
       },
     });
-    streamRef.current = handle;
-    return () => {
-      handle.stop();
-      streamRef.current = null;
-    };
+    return () => connection.setStreamHandlers(null);
   }, [config, refreshSession]);
 
   const send = useCallback(
@@ -206,7 +213,7 @@ export default function ChatScreen() {
         { id: null, role: 'assistant', content: '', createdAt: null },
       ]);
       setStreaming(true);
-      const ok = streamRef.current?.send({
+      const ok = connection.send({
         content: text,
         model: currentModel ?? undefined,
         sessionId: ph,
@@ -276,10 +283,15 @@ export default function ChatScreen() {
       />
 
       {!online ? (
-        <View style={styles.offline}>
+        <Pressable
+          style={styles.offline}
+          onPress={() => connection.reconnectNow()}
+          accessibilityLabel="重新连接"
+        >
           <Ionicons name="cloud-offline-outline" size={14} color={colors.warningText} />
-          <Text style={styles.offlineText}>未连接电脑</Text>
-        </View>
+          <Text style={styles.offlineText}>未连接电脑 · 点此重连</Text>
+          <Ionicons name="refresh" size={14} color={colors.warningText} />
+        </Pressable>
       ) : null}
 
       {loading ? (

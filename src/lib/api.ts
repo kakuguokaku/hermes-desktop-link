@@ -93,11 +93,13 @@ export type StreamEvents = {
   onComplete: (sessionId: string) => void;
   onError: (sessionId: string, error: string) => void;
   onStatus?: (status: 'connecting' | 'open' | 'closed') => void;
+  onRawMessage?: (msg: any) => void;
 };
 
 export type StreamHandle = {
   stop: () => void;
   send: (payload: { content: string; model?: string; sessionId?: string }) => boolean;
+  sendRaw: (data: object) => boolean;
 };
 
 export function openStream(c: ConnConfig, events: StreamEvents): StreamHandle {
@@ -133,6 +135,7 @@ export function openStream(c: ConnConfig, events: StreamEvents): StreamHandle {
           if (ev.type === 'message.delta') events.onDelta(ev.sessionId, ev.delta);
           else if (ev.type === 'message.complete') events.onComplete(ev.sessionId);
           else if (ev.type === 'message.error') events.onError(ev.sessionId, ev.error);
+          else events.onRawMessage?.(ev);
         };
         ws.onclose = () => {
           events.onStatus?.('closed');
@@ -160,5 +163,15 @@ export function openStream(c: ConnConfig, events: StreamEvents): StreamHandle {
       ws.send(JSON.stringify({ type: 'send', ...payload }));
       return true;
     },
+    sendRaw: (data) => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+      ws.send(JSON.stringify(data));
+      return true;
+    },
   };
+}
+
+/** 清空智能地址缓存（网络切换后调用，让 LAN/外网重新探测） */
+export function resetBaseUrlCache(): void {
+  activeCache = null;
 }

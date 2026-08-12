@@ -4,7 +4,6 @@ import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Pressable,
   ScrollView,
@@ -13,6 +12,7 @@ import {
   View,
 } from 'react-native';
 import { api } from '../lib/api';
+import { connection, type Status } from '../lib/connection';
 import { clearConfig, getConfig, type ConnConfig } from '../lib/storage';
 import { font, radius, shadow, type Colors } from '../lib/theme';
 import { useDisplayMode, useTheme } from '../lib/theme-context';
@@ -70,8 +70,7 @@ export default function SettingsScreen() {
   const { displayMode, setDisplayMode } = useDisplayMode();
   const router = useRouter();
   const [config, setConfig] = useState<ConnConfig | null>(null);
-  const [testing, setTesting] = useState(false);
-  const [status, setStatus] = useState<'ok' | 'fail' | null>(null);
+  const [connStatus, setConnStatus] = useState<Status>(connection.getStatus());
   const [defaultModel, setDefaultModel] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -89,19 +88,13 @@ export default function SettingsScreen() {
     load();
   }, [load]);
 
-  const testConn = useCallback(async () => {
+  // 订阅全局连接状态：subscribe 注册时立即回放当前状态，挂载即拿到真实状态
+  useEffect(() => connection.subscribe(setConnStatus), []);
+
+  const testConn = useCallback(() => {
     if (!config) return;
-    setTesting(true);
-    setStatus(null);
-    try {
-      await api.health(config);
-      setStatus('ok');
-    } catch {
-      setStatus('fail');
-    } finally {
-      setTesting(false);
-    }
-  }, [config]);
+    if (connStatus !== 'open') connection.ensureStarted(config); // 未连接时立即连接/重连
+  }, [config, connStatus]);
 
   const disconnect = useCallback(() => {
     Alert.alert('断开连接', '将清除已保存的连接信息，需要重新连接。', [
@@ -111,6 +104,7 @@ export default function SettingsScreen() {
         style: 'destructive',
         onPress: async () => {
           await clearConfig();
+          connection.disconnect();
           router.replace('/connect');
         },
       },
@@ -142,14 +136,12 @@ export default function SettingsScreen() {
         <View style={styles.rowBetween}>
           <Text style={styles.label}>状态</Text>
           <Pressable onPress={testConn} hitSlop={8}>
-            {testing ? (
-              <ActivityIndicator size="small" color={colors.accent} />
-            ) : status === 'ok' ? (
+            {connStatus === 'open' ? (
               <Text style={[styles.value, { color: colors.successText }]}>已连接 ✓</Text>
-            ) : status === 'fail' ? (
-              <Text style={[styles.value, { color: colors.errorText }]}>连接失败 ✗</Text>
+            ) : connStatus === 'connecting' ? (
+              <Text style={styles.value}>连接中…</Text>
             ) : (
-              <Text style={styles.value}>点此测试</Text>
+              <Text style={[styles.value, { color: colors.errorText }]}>未连接 ✗</Text>
             )}
           </Pressable>
         </View>
