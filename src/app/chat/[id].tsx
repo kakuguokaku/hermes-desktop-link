@@ -28,12 +28,12 @@ import {
 import { connection } from '../../lib/connection';
 import type { Status } from '../../lib/connection';
 import { getConfig, getPrefs, savePrefs, type ConnConfig } from '../../lib/storage';
-import { font, radius, type Colors } from '../../lib/theme';
-import { useTheme } from '../../lib/theme-context';
+import { radius, type Colors, type FontTokens } from '../../lib/theme';
+import { useFont, useTheme } from '../../lib/theme-context';
 
 const SESSION_RE = /^\d{8}_\d{6}_[A-Za-z0-9]+$/;
 
-const createStyles = (colors: Colors) =>
+const createStyles = (colors: Colors, font: FontTokens) =>
   StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
     flex: { flex: 1 },
@@ -79,7 +79,8 @@ const createStyles = (colors: Colors) =>
 
 export default function ChatScreen() {
   const colors = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const font = useFont();
+  const styles = useMemo(() => createStyles(colors, font), [colors, font]);
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const isNew = id === 'new';
@@ -107,6 +108,7 @@ export default function ChatScreen() {
   const streamingRef = useRef(streaming);
   streamingRef.current = streaming;
   const stickToBottom = useRef(true); // 贴底跟随：用户上翻历史时不强制拉回
+  const lastActivityRef = useRef(0); // 流式看门狗：最近一次 delta 活动时间
   // 反向渲染（微信式）：最新一条固定在 index 0（屏幕底端），打开即在最新、键盘弹起不遮挡
   const invertedMessages = useMemo(() => [...messages].reverse(), [messages]);
 
@@ -160,15 +162,26 @@ export default function ChatScreen() {
     []
   );
 
-  // 连接状态订阅：online 标识 + 重连成功后刷新会话（把断连期间消息拉回）
+  // 连接状态订阅：online 标识 + 重连成功后刷新会话（把断连期间消息拉回）；断连/重连时复位卡死的流式
   const prevConn = useRef<Status | null>(null);
   useEffect(() => {
     return connection.subscribe((s) => {
       setOnline(s === 'open');
-      if (s === 'open' && prevConn.current && prevConn.current !== 'open' && config && sessionIdRef.current) {
-        refreshSession(config, sessionIdRef.current);
+      if (s !== 'open' && streamingRef.current) setStreaming(false);
+      if (s === 'open' && prevConn.current && prevConn.current !== 'open') {
+        if (streamingRef.current) setStreaming(false);
+        if (config && sessionIdRef.current) refreshSession(config, sessionIdRef.current);
       }
       prevConn.current = s;
+    });
+  }, [config, refreshSession]);
+
+  // 收到 session.updated：对应当前会话则刷新（bridge 已完成一次回复）
+  useEffect(() => {
+    return connection.subscribeSessionUpdated((sid) => {
+      if (config && sessionIdRef.current && sid === sessionIdRef.current) {
+        refreshSession(config, sid);
+      }
     });
   }, [config, refreshSession]);
 
@@ -178,6 +191,7 @@ export default function ChatScreen() {
     connection.setStreamHandlers({
       onDelta: (_sid, delta) => {
         if (!streamingRef.current) return;
+        lastActivityRef.current = Date.now();
         setMessages((prev) => {
           const next = [...prev];
           const last = next[next.length - 1];
@@ -204,6 +218,18 @@ export default function ChatScreen() {
     });
     return () => connection.setStreamHandlers(null);
   }, [config, refreshSession]);
+
+  // 流式看门狗：45s 无活动（message.complete 丢失 / WS 中途断开）→ 复位 streaming 并拉回最新
+  useEffect(() => {
+    if (!streaming) return;
+    const t = setInterval(() => {
+      if (streamingRef.current && Date.now() - lastActivityRef.current > 45000) {
+        setStreaming(false);
+        if (sessionIdRef.current && config) refreshSession(config, sessionIdRef.current);
+      }
+    }, 10000);
+    return () => clearInterval(t);
+  }, [streaming, config, refreshSession]);
 
   const send = useCallback(
     (text: string) => {
@@ -296,11 +322,7 @@ export default function ChatScreen() {
         </Pressable>
       ) : null}
 
-      {loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={colors.accent} />
-        </View>
-      ) : loadError ? (
+      {loadError ? (
         <View style={styles.center}>
           <Text style={styles.errText}>{loadError}</Text>
         </View>
@@ -308,7 +330,7 @@ export default function ChatScreen() {
         <KeyboardAvoidingView
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 96 : 0}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
         >
           <FlatList
             ref={listRef}
@@ -327,8 +349,17 @@ export default function ChatScreen() {
             }}
             ListEmptyComponent={
               <View style={styles.empty}>
-                <Ionicons name="chatbubble-ellipses-outline" size={36} color={colors.textFaint} />
-                <Text style={styles.emptyText}>和 Hermes 聊聊吧</Text>
+                {loading ? (
+                  <>
+                    <ActivityIndicator size="small" color={colors.accent} />
+                    <Text style={styles.emptyText}>加载中…</Text>
+                  </>
+                ) : (
+                  <>
+                    <Ionicons name="chatbubble-ellipses-outline" size={36} color={colors.textFaint} />
+                    <Text style={styles.emptyText}>和 Hermes 聊聊吧</Text>
+                  </>
+                )}
               </View>
             }
             renderItem={({ item }) => (
@@ -339,7 +370,10 @@ export default function ChatScreen() {
               />
             )}
           />
-          <InputBar onSend={send} disabled={streaming || !online} online={online} />
+          {/* 键盘弹起时输入框与键盘之间留出间距（避免重叠） */}
+          <View style={{ paddingBottom: 18 }}>
+            <InputBar onSend={send} disabled={streaming || !online} online={online} />
+          </View>
         </KeyboardAvoidingView>
       )}
 

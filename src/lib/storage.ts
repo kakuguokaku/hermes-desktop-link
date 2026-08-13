@@ -4,7 +4,8 @@ import { Platform } from 'react-native';
 
 export type ConnConfig = { baseUrl: string; token: string; lanBaseUrl?: string };
 export type DisplayMode = 'auto' | 'light' | 'dark';
-export type AppPrefs = { defaultModel?: string | null; displayMode?: DisplayMode };
+export type FontSize = 'standard' | 'large';
+export type AppPrefs = { defaultModel?: string | null; displayMode?: DisplayMode; fontSize?: FontSize };
 
 const CONN_KEY = 'hdl.conn';
 const PREFS_KEY = 'hdl.prefs';

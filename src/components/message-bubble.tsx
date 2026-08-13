@@ -3,12 +3,12 @@ import React, { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { Message } from '../lib/api';
-import { font, radius, shadow, type Colors } from '../lib/theme';
-import { useTheme } from '../lib/theme-context';
+import { radius, shadow, type Colors, type FontTokens } from '../lib/theme';
+import { useFont, useTheme } from '../lib/theme-context';
 import { MarkdownText } from './markdown';
 import { hasMarkdown } from '../lib/markdown-detect';
 
-const createStyles = (colors: Colors) =>
+const createStyles = (colors: Colors, font: FontTokens) =>
   StyleSheet.create({
     row: { flexDirection: 'row', marginBottom: 12, alignItems: 'flex-end' },
     rowUser: { justifyContent: 'flex-end' },
@@ -62,7 +62,8 @@ export function MessageBubble({
   onImagePress?: (uri: string) => void;
 }) {
   const colors = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const font = useFont();
+  const styles = useMemo(() => createStyles(colors, font), [colors, font]);
   const isUser = message.role === 'user';
   const fallback = message.content || (isStreaming ? '' : '(空回复)');
   const plain = !hasMarkdown(fallback);

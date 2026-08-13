@@ -89,3 +89,5 @@ export const font = {
   caption: 12,
   tiny: 11,
 };
+
+export type FontTokens = { h1: number; h2: number; body: number; caption: number; tiny: number };

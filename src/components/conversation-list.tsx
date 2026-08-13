@@ -1,4 +1,4 @@
-// src/components/conversation-list.tsx —— 可复用会话列表（归档/删除 + 自动搜索，明暗自适应）
+// src/components/conversation-list.tsx —— 可复用会话列表（归档/删除 + 自动搜索 + session.updated 刷新，明暗自适应）
 import { Ionicons } from '@expo/vector-icons';
 import React, {
   forwardRef,
@@ -15,13 +15,13 @@ import {
   RefreshControl,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import { api, type SessionSummary } from '../lib/api';
+import { connection } from '../lib/connection';
 import type { ConnConfig } from '../lib/storage';
-import { font, radius, shadow, type Colors } from '../lib/theme';
-import { useTheme } from '../lib/theme-context';
+import { radius, shadow, type Colors, type FontTokens } from '../lib/theme';
+import { useFont, useTheme } from '../lib/theme-context';
 
 export type ConversationListHandle = {
   beginArchive: () => void;
@@ -38,7 +38,7 @@ function fmtTime(raw: string | null): string {
   return s;
 }
 
-const createStyles = (colors: Colors) =>
+const createStyles = (colors: Colors, font: FontTokens) =>
   StyleSheet.create({
     root: { flex: 1, backgroundColor: colors.bg },
     center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 8 },
@@ -70,48 +70,38 @@ const createStyles = (colors: Colors) =>
     selectCount: { fontSize: font.body, fontWeight: '600', color: colors.textPrimary },
     confirmText: { fontSize: font.body, fontWeight: '700', color: colors.accent },
     confirmDelete: { color: colors.errorText },
+    // 分组头（最近会话）
+    groupHead: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4, paddingTop: 12, paddingBottom: 8 },
+    groupTitle: { fontSize: font.h2, fontWeight: '700', color: colors.textPrimary },
+    groupCount: { backgroundColor: colors.borderSubtle, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 1 },
+    groupCountText: { fontSize: font.tiny, color: colors.textMuted, fontWeight: '600' },
     list: { paddingHorizontal: 12, paddingTop: 4, paddingBottom: 12 },
+    // 紧凑单行会话条目：图标与标题上下居中，标题左对齐，时间右对齐
     item: {
       flexDirection: 'row',
       alignItems: 'center',
       backgroundColor: colors.card,
-      borderRadius: radius.card,
+      borderRadius: radius.card - 2,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.borderSubtle,
-      padding: 13,
-      marginBottom: 10,
+      paddingVertical: 9,
+      paddingHorizontal: 12,
+      marginBottom: 8,
       ...shadow.card,
     },
     itemSelected: { borderColor: colors.accent, borderWidth: 1.5 },
     checkIcon: { marginRight: 8 },
     itemIcon: {
-      width: 36,
-      height: 36,
-      borderRadius: 12,
+      width: 34,
+      height: 34,
+      borderRadius: 11,
       backgroundColor: colors.accentSoft,
       alignItems: 'center',
       justifyContent: 'center',
-      marginRight: 12,
+      marginRight: 11,
     },
-    itemBody: { flex: 1 },
-    itemTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-    itemTitle: { fontSize: font.body, fontWeight: '600', color: colors.textPrimary, flex: 1, marginRight: 8 },
-    itemTime: { fontSize: font.tiny, color: colors.textMuted },
-    itemMeta: { fontSize: font.tiny, color: colors.textMuted, marginTop: 3 },
-    searchBar: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      backgroundColor: colors.card,
-      borderRadius: radius.card,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
-      marginHorizontal: 12,
-      marginBottom: 12,
-      paddingHorizontal: 12,
-      paddingVertical: 10,
-    },
-    searchInput: { flex: 1, fontSize: font.body, color: colors.textPrimary, padding: 0 },
+    itemTitle: { flex: 1, fontSize: font.body, fontWeight: '600', color: colors.textPrimary, textAlign: 'left' },
+    itemTime: { fontSize: font.tiny, color: colors.textMuted, marginLeft: 8 },
   });
 
 export const ConversationList = forwardRef<
@@ -121,18 +111,26 @@ export const ConversationList = forwardRef<
     onSelect: (id: string) => void;
     onClose?: () => void;
     showActions?: boolean;
+    query?: string;
+    onUserScroll?: () => void;
+    showSectionHeader?: boolean;
+    reloadTick?: number;
   }
->(function ConversationList({ config, onSelect, onClose, showActions = true }, ref) {
+>(function ConversationList(
+  { config, onSelect, onClose, showActions = true, query: queryProp, onUserScroll, showSectionHeader = false, reloadTick },
+  ref
+) {
   const colors = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const font = useFont();
+  const styles = useMemo(() => createStyles(colors, font), [colors, font]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [query, setQuery] = useState('');
   const [selectMode, setSelectMode] = useState(false);
   const [action, setAction] = useState<'archive' | 'delete' | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const query = queryProp ?? '';
 
   const load = useCallback(async () => {
     try {
@@ -148,6 +146,14 @@ export const ConversationList = forwardRef<
     setLoading(true);
     load().finally(() => setLoading(false));
   }, [load]);
+
+  // 会话更新（发完消息等）→ 自动重载列表
+  useEffect(() => connection.subscribeSessionUpdated(() => load()), [load]);
+
+  // 外部触发刷新（回到前台 / 列表重挂）：静默重载，不重置 loading 态
+  useEffect(() => {
+    if (reloadTick !== undefined && reloadTick > 0) load();
+  }, [reloadTick, load]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -200,7 +206,7 @@ export const ConversationList = forwardRef<
     await load();
   }, [action, selected, config, load, cancelSelect]);
 
-  const showToolbar = Boolean(onClose || showActions || selectMode);
+  const showToolbar = Boolean(onClose || selectMode);
 
   return (
     <View style={styles.root}>
@@ -252,6 +258,16 @@ export const ConversationList = forwardRef<
         </View>
       )}
 
+      {showSectionHeader ? (
+        <View style={styles.groupHead}>
+          <Ionicons name="chevron-down" size={13} color={colors.textMuted} />
+          <Text style={styles.groupTitle}>最近会话</Text>
+          <View style={styles.groupCount}>
+            <Text style={styles.groupCountText}>{sessions.length}</Text>
+          </View>
+        </View>
+      ) : null}
+
       {loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.accent} />
@@ -271,6 +287,7 @@ export const ConversationList = forwardRef<
           data={filtered}
           keyExtractor={(s) => s.id}
           contentContainerStyle={styles.list}
+          onScrollBeginDrag={() => onUserScroll?.()}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
           }
@@ -294,40 +311,14 @@ export const ConversationList = forwardRef<
               <View style={styles.itemIcon}>
                 <Ionicons name="chatbubble-ellipses-outline" size={17} color={colors.accent} />
               </View>
-              <View style={styles.itemBody}>
-                <View style={styles.itemTop}>
-                  <Text style={styles.itemTitle} numberOfLines={1}>
-                    {item.title || '未命名对话'}
-                  </Text>
-                  <Text style={styles.itemTime}>{fmtTime(item.updatedAt)}</Text>
-                </View>
-                <Text style={styles.itemMeta} numberOfLines={1}>
-                  {item.model ? `模型 ${item.model}` : '·'}
-                </Text>
-              </View>
+              <Text style={styles.itemTitle} numberOfLines={1}>
+                {item.title || '未命名对话'}
+              </Text>
+              <Text style={styles.itemTime}>{fmtTime(item.updatedAt)}</Text>
             </Pressable>
           )}
         />
       )}
-
-      {/* 底部搜索框（自动搜索，无需按钮） */}
-      <View style={styles.searchBar}>
-        <Ionicons name="search" size={16} color={colors.textMuted} />
-        <TextInput
-          style={styles.searchInput}
-          value={query}
-          onChangeText={setQuery}
-          placeholder="搜索会话标题"
-          placeholderTextColor={colors.textMuted}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-        {query.length > 0 && (
-          <Pressable onPress={() => setQuery('')} hitSlop={8} accessibilityLabel="清空搜索">
-            <Ionicons name="close-circle" size={16} color={colors.textMuted} />
-          </Pressable>
-        )}
-      </View>
     </View>
   );
 });

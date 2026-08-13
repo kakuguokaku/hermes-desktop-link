@@ -9,17 +9,17 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Speech from 'expo-speech-recognition';
-import { radius, shadow, type Colors } from '../lib/theme';
-import { useTheme } from '../lib/theme-context';
+import { radius, shadow, type Colors, type FontTokens } from '../lib/theme';
+import { useFont, useTheme } from '../lib/theme-context';
 
 const SpeechModule = Speech.ExpoSpeechRecognitionModule;
 
-const createStyles = (colors: Colors) =>
+const createStyles = (colors: Colors, font: FontTokens) =>
   StyleSheet.create({
     wrap: { paddingHorizontal: 12, paddingVertical: 8, backgroundColor: colors.bg },
     hint: {
       color: colors.warningText,
-      fontSize: 11,
+      fontSize: font.tiny,
       marginBottom: 6,
       paddingHorizontal: 4,
     },
@@ -44,7 +44,7 @@ const createStyles = (colors: Colors) =>
     micActive: { backgroundColor: colors.accentFill },
     input: {
       flex: 1,
-      fontSize: 15,
+      fontSize: font.body + 1,
       color: colors.textPrimary,
       maxHeight: 110,
       paddingVertical: 6,
@@ -72,7 +72,8 @@ export function InputBar({
   online: boolean;
 }) {
   const colors = useTheme();
-  const styles = useMemo(() => createStyles(colors), [colors]);
+  const font = useFont();
+  const styles = useMemo(() => createStyles(colors, font), [colors, font]);
   const [text, setText] = useState('');
   const [listening, setListening] = useState(false);
   const [voiceHint, setVoiceHint] = useState<string | null>(null);

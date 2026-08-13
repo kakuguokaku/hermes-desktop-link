@@ -12,6 +12,14 @@ export type SessionSummary = {
 };
 export type Message = { id: string | null; role: 'user' | 'assistant'; content: string; createdAt: string | null };
 export type SessionDetail = { session: SessionSummary; messages: Message[] };
+export type CronTask = {
+  id: string;
+  name: string;
+  active: boolean;
+  scheduleText: string;
+  nextRunText: string;
+  lastRunText: string;
+};
 
 // ---------- 智能地址：自动连接时先探内网（2s 超时），不可用则走外网 ----------
 let activeCache: { key: string; baseUrl: string; at: number } | null = null;
@@ -79,6 +87,7 @@ export const api = {
   models: (c: ConnConfig) => jfetch<{ models: Model[]; defaultModel: string | null }>(c, '/api/models'),
   sessions: (c: ConnConfig) => jfetch<{ sessions: SessionSummary[] }>(c, '/api/sessions'),
   session: (c: ConnConfig, id: string) => jfetch<SessionDetail>(c, `/api/sessions/${encodeURIComponent(id)}`),
+  cron: (c: ConnConfig) => jfetch<{ tasks: CronTask[] }>(c, '/api/cron'),
   removeSession: (c: ConnConfig, id: string) =>
     jfetch<{ ok: boolean }>(c, `/api/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   archiveSession: (c: ConnConfig, id: string) =>

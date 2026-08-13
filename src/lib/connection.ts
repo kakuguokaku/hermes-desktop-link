@@ -23,6 +23,7 @@ let status: Status = 'closed';
 let stream: StreamHandle | null = null;
 let handlers: StreamHandlers | null = null;
 const listeners = new Set<(s: Status) => void>();
+const sessionUpdatedListeners = new Set<(sid: string) => void>();
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let pongTimer: ReturnType<typeof setTimeout> | null = null;
 let pongSeen = false; // 关键防坑：只有收到过 pong 才启用假死检测
@@ -106,6 +107,9 @@ function startStream() {
     onRawMessage: (msg) => {
       if (myEpoch !== epoch) return;
       if (msg?.type === 'pong') onPong();
+      if (msg?.type === 'session.updated' && msg.sessionId) {
+        sessionUpdatedListeners.forEach((cb) => cb(msg.sessionId));
+      }
     },
   });
 }
@@ -127,6 +131,10 @@ export const connection = {
     listeners.add(cb);
     cb(status); // 立即回放当前状态：避免消费者挂载时错过已建立的连接
     return () => listeners.delete(cb);
+  },
+  subscribeSessionUpdated(cb: (sid: string) => void): () => void {
+    sessionUpdatedListeners.add(cb);
+    return () => sessionUpdatedListeners.delete(cb);
   },
   getStatus(): Status {
     return status;
