@@ -48,7 +48,7 @@ const createStyles = (colors: Colors) =>
       paddingVertical: 6,
     },
     offlineText: { color: colors.warningText, fontSize: font.tiny },
-    list: { padding: 14, paddingBottom: 8, flexGrow: 1 },
+    list: { paddingHorizontal: 14, paddingTop: 8, paddingBottom: 14, flexGrow: 1 },
     empty: { alignItems: 'center', paddingTop: 60, gap: 10 },
     emptyText: { color: colors.textMuted, fontSize: font.body },
     modelChip: {
@@ -107,6 +107,8 @@ export default function ChatScreen() {
   const streamingRef = useRef(streaming);
   streamingRef.current = streaming;
   const stickToBottom = useRef(true); // 贴底跟随：用户上翻历史时不强制拉回
+  // 反向渲染（微信式）：最新一条固定在 index 0（屏幕底端），打开即在最新、键盘弹起不遮挡
+  const invertedMessages = useMemo(() => [...messages].reverse(), [messages]);
 
   // 初始化：配置、模型、会话内容、WS
   useEffect(() => {
@@ -310,19 +312,18 @@ export default function ChatScreen() {
         >
           <FlatList
             ref={listRef}
-            data={messages}
+            data={invertedMessages}
+            inverted
             keyExtractor={(item, i) => item.id ?? `${item.role}-${i}`}
-            initialScrollIndex={messages.length > 0 ? messages.length - 1 : 0}
-            onScrollToIndexFailed={() => listRef.current?.scrollToEnd({ animated: false })}
             contentContainerStyle={styles.list}
             onScroll={({ nativeEvent }) => {
-              const { contentOffset, contentSize, layoutMeasurement } = nativeEvent;
-              stickToBottom.current =
-                contentSize.height - contentOffset.y - layoutMeasurement.height < 60;
+              const { contentOffset } = nativeEvent;
+              // 反向列表：contentOffset 0 即屏幕底端（最新），距底部 <60 视为贴底
+              stickToBottom.current = contentOffset.y < 60;
             }}
             scrollEventThrottle={100}
             onContentSizeChange={() => {
-              if (stickToBottom.current) listRef.current?.scrollToEnd({ animated: false });
+              if (stickToBottom.current) listRef.current?.scrollToOffset({ offset: 0, animated: false });
             }}
             ListEmptyComponent={
               <View style={styles.empty}>
