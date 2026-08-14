@@ -4,6 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AppState,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -47,9 +49,25 @@ export default function ConversationsScreen() {
   const [viewMode, setViewMode] = useState<'sessions' | 'tasks'>('sessions');
   const [query, setQuery] = useState('');
   const [refreshTick, setRefreshTick] = useState(0);
+  const [kavEpoch, setKavEpoch] = useState(0); // 回前台时强制 KeyboardAvoidingView 重新计算布局
   const listRef = useRef<ConversationListHandle>(null);
 
   const collapseTasks = useCallback(() => setViewMode('sessions'), []);
+
+  // 搜索栏开着键盘切后台再回来：iOS 会收起键盘但 KAV 残留高度 → 白屏。后台 dismiss + 回前台强制重算。
+  const appStateRef = useRef(AppState.currentState);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (s) => {
+      const prev = appStateRef.current;
+      appStateRef.current = s;
+      if (s === 'background') {
+        Keyboard.dismiss();
+      } else if (s === 'active' && prev === 'background') {
+        setKavEpoch((e) => e + 1);
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   // 回到前台：读配置（缺则跳连接页）并静默刷新列表（命中 bridge 缓存则瞬时）
   useFocusEffect(
@@ -133,7 +151,7 @@ export default function ConversationsScreen() {
           {/* 定时任务面板 + 搜索栏：键盘弹起时整体升到键盘上方 */}
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 88 + (kavEpoch % 2) : 0}
           >
             <TaskPanel
               config={config}

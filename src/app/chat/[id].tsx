@@ -4,7 +4,9 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -101,6 +103,7 @@ export default function ChatScreen() {
     visible: false,
     uri: null,
   });
+  const [kavEpoch, setKavEpoch] = useState(0); // 回前台时强制 KeyboardAvoidingView 重新计算布局
 
   const listRef = useRef<FlatList<Message>>(null);
   const sessionIdRef = useRef<string | null>(sessionId);
@@ -184,6 +187,22 @@ export default function ChatScreen() {
       }
     });
   }, [config, refreshSession]);
+
+  // 键盘开着切后台再回来：iOS 会收起键盘但 KAV 残留键盘高度 → 白屏只剩输入框。
+  // 后台时主动 dismiss（触发 hide 事件清 padding），回前台再强制 KAV 重算布局。
+  const appStateRef = useRef(AppState.currentState);
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (s) => {
+      const prev = appStateRef.current;
+      appStateRef.current = s;
+      if (s === 'background') {
+        Keyboard.dismiss();
+      } else if (s === 'active' && prev === 'background') {
+        setKavEpoch((e) => e + 1);
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   // 流式事件注册（卸载时注销，连接本身保留）
   useEffect(() => {
@@ -330,7 +349,7 @@ export default function ChatScreen() {
         <KeyboardAvoidingView
           style={styles.flex}
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 88 + (kavEpoch % 2) : 0}
         >
           <FlatList
             ref={listRef}
