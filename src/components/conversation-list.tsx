@@ -115,9 +115,10 @@ export const ConversationList = forwardRef<
     reloadTick?: number;
     updatedIds?: Set<string>;
     onUserScroll?: () => void;
+    selectedId?: string;
   }
 >(function ConversationList(
-  { config, onSelect, onClose, showActions = true, query: queryProp, showSectionHeader = false, expanded = true, onToggleExpanded, reloadTick, updatedIds, onUserScroll },
+  { config, onSelect, onClose, showActions = true, query: queryProp, showSectionHeader = false, expanded = true, onToggleExpanded, reloadTick, updatedIds, onUserScroll, selectedId },
   ref
 ) {
   const colors = useTheme();
@@ -290,6 +291,7 @@ export const ConversationList = forwardRef<
               style={({ pressed }) => [
                 styles.item,
                 selectMode && selected.has(item.id) && styles.itemSelected,
+                !selectMode && selectedId === item.id && styles.itemSelected,
                 pressed && { opacity: 0.7 },
               ]}
               onPress={() => (selectMode ? toggle(item.id) : onSelect(item.id))}

@@ -150,7 +150,7 @@ export const connection = {
     pongSeen = false;
     setStatus('closed');
   },
-  send(payload: { content: string; model?: string; sessionId?: string }): boolean {
+  send(payload: { content: string; model?: string; sessionId?: string; attachments?: { kind: 'image' | 'file'; fileId: string }[] }): boolean {
     if (status !== 'open' || !stream) return false;
     return stream.send(payload);
   },

@@ -1,8 +1,8 @@
 // src/components/message-bubble.tsx —— 消息气泡（明暗自适应）
 import React, { useMemo } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import type { Message } from '../lib/api';
+import type { Attachment, Message } from '../lib/api';
 import { radius, shadow, type Colors, type FontTokens } from '../lib/theme';
 import { useFont, useTheme } from '../lib/theme-context';
 import { MarkdownText } from './markdown';
@@ -50,16 +50,30 @@ const createStyles = (colors: Colors, font: FontTokens) =>
       backgroundColor: colors.textMuted,
       marginRight: 4,
     },
+    // 附件区（用户气泡内）
+    attRows: { gap: 6, marginBottom: 6 },
+    attThumb: { width: 160, height: 100, borderRadius: 10 },
+    attFile: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      padding: 8,
+      backgroundColor: 'rgba(255,255,255,0.14)',
+      borderRadius: 10,
+    },
+    attFileText: { color: colors.card, fontSize: font.tiny, flex: 1 },
   });
 
 export function MessageBubble({
   message,
   isStreaming,
   onImagePress,
+  onAttachmentPress,
 }: {
   message: Message;
   isStreaming?: boolean;
   onImagePress?: (uri: string) => void;
+  onAttachmentPress?: (a: Attachment) => void;
 }) {
   const colors = useTheme();
   const font = useFont();
@@ -83,6 +97,24 @@ export function MessageBubble({
           isUser ? null : shadow.card,
         ]}
       >
+        {isUser && message.attachments?.length ? (
+          <View style={styles.attRows}>
+            {message.attachments.map((a, i) => (
+              <Pressable key={i} onPress={() => onAttachmentPress?.(a)} accessibilityLabel={a.name}>
+                {a.kind === 'image' && a.uri ? (
+                  <Image source={{ uri: a.uri }} style={styles.attThumb} />
+                ) : (
+                  <View style={styles.attFile}>
+                    <Ionicons name="document-outline" size={14} color={colors.card} />
+                    <Text style={styles.attFileText} numberOfLines={1}>
+                      {a.name}
+                    </Text>
+                  </View>
+                )}
+              </Pressable>
+            ))}
+          </View>
+        ) : null}
         {isUser ? (
           <Text selectable style={styles.userText}>
             {message.content}

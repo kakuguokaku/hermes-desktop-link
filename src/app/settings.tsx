@@ -44,6 +44,7 @@ const createStyles = (colors: Colors, font: FontTokens) =>
     lblRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0 },
     label: { fontSize: font.body, color: colors.textBody },
     value: { fontSize: font.body, fontWeight: '600', color: colors.textPrimary, flexShrink: 1, marginLeft: 12, maxWidth: '60%' },
+    valueNoCap: { fontSize: font.body, fontWeight: '600', color: colors.textPrimary, flexShrink: 1, marginLeft: 12 }, // 短值不去上限，保证完整单行显示
     divider: { height: 1, backgroundColor: colors.borderSubtle, marginVertical: 12 },
     note: { fontSize: font.caption, color: colors.textMuted, marginTop: 10, lineHeight: 18 },
     dangerRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -162,11 +163,11 @@ export default function SettingsScreen() {
           </View>
           <Pressable onPress={testConn} hitSlop={8}>
             {connStatus === 'open' ? (
-              <Text numberOfLines={1} style={[styles.value, { color: colors.successText }]}>已连接 ✓</Text>
+              <Text numberOfLines={1} style={[styles.valueNoCap, { color: colors.successText }]}>已连接 ✓</Text>
             ) : connStatus === 'connecting' ? (
-              <Text numberOfLines={1} style={styles.value}>连接中…</Text>
+              <Text numberOfLines={1} style={styles.valueNoCap}>连接中…</Text>
             ) : (
-              <Text numberOfLines={1} style={[styles.value, { color: colors.errorText }]}>未连接 ✗</Text>
+              <Text numberOfLines={1} style={[styles.valueNoCap, { color: colors.errorText }]}>未连接 ✗</Text>
             )}
           </Pressable>
         </View>

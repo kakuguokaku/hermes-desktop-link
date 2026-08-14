@@ -1,9 +1,11 @@
 // src/app/chat/[id].tsx —— 对话页（流式 + 模型切换 + 语音 + 80% 历史面板，明暗自适应）
 import { Ionicons } from '@expo/vector-icons';
+import * as Sharing from 'expo-sharing';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   AppState,
   FlatList,
   Keyboard,
@@ -23,6 +25,7 @@ import { MessageBubble } from '../../components/message-bubble';
 import { ModelPicker } from '../../components/model-picker';
 import {
   api,
+  type Attachment,
   type Message,
   type Model,
   type SessionDetail,
@@ -105,6 +108,7 @@ export default function ChatScreen() {
     uri: null,
   });
   const [kavEpoch, setKavEpoch] = useState(0); // 回前台时强制 KeyboardAvoidingView 重新计算布局
+  const [pendingAtts, setPendingAtts] = useState<Attachment[]>([]); // 待发附件（发送前显示在输入栏上方）
 
   const listRef = useRef<FlatList<Message>>(null);
   const sessionIdRef = useRef<string | null>(sessionId);
@@ -264,13 +268,26 @@ export default function ChatScreen() {
   }, [streaming, config, refreshSession]);
 
   const send = useCallback(
-    (text: string) => {
+    async (text: string) => {
       if (!config || streamingRef.current) return;
       const ph = sessionIdRef.current || `app-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       activeReqRef.current = ph;
+      // 先上传附件（逐个），任一失败则中止发送
+      const uploaded: { kind: 'image' | 'file'; fileId: string }[] = [];
+      for (const a of pendingAtts) {
+        if (!a.uri) continue;
+        try {
+          const u = await api.upload(config, a.uri, a.name, a.kind);
+          uploaded.push({ kind: u.kind, fileId: u.fileId });
+        } catch {
+          activeReqRef.current = null;
+          Alert.alert('附件上传失败', a.name);
+          return;
+        }
+      }
       setMessages((prev) => [
         ...prev,
-        { id: null, role: 'user', content: text, createdAt: null },
+        { id: null, role: 'user', content: text, createdAt: null, attachments: pendingAtts },
         { id: null, role: 'assistant', content: '', createdAt: null },
       ]);
       setStreaming(true);
@@ -278,6 +295,7 @@ export default function ChatScreen() {
         content: text,
         model: currentModel ?? undefined,
         sessionId: ph,
+        attachments: uploaded,
       });
       if (!ok) {
         activeReqRef.current = null;
@@ -287,8 +305,9 @@ export default function ChatScreen() {
           { id: null, role: 'assistant', content: '⚠️ 连接已断开，请稍后重试', createdAt: null },
         ]);
       }
+      setPendingAtts([]);
     },
-    [config, currentModel]
+    [config, currentModel, pendingAtts]
   );
 
   const selectModel = useCallback((m: Model) => {
@@ -298,6 +317,21 @@ export default function ChatScreen() {
   }, []);
 
   const openImageViewer = useCallback((u: string) => setViewer({ visible: true, uri: u }), []);
+
+  const openAttachment = useCallback(
+    async (a: Attachment) => {
+      if (a.kind === 'image' && a.uri) {
+        openImageViewer(a.uri);
+        return;
+      }
+      if (a.uri) {
+        await Sharing.shareAsync(a.uri).catch(() => {});
+        return;
+      }
+      Alert.alert('文件', '附件暂不可用');
+    },
+    [openImageViewer]
+  );
 
   const shortModel = (s: string | null) => {
     if (!s) return '选择模型';
@@ -401,12 +435,24 @@ export default function ChatScreen() {
                 message={item}
                 isStreaming={streaming && item.role === 'assistant' && item.content === ''}
                 onImagePress={openImageViewer}
+                onAttachmentPress={openAttachment}
               />
             )}
           />
           {/* 键盘弹起时输入框与键盘之间留出间距（避免重叠） */}
           <View style={{ paddingBottom: 18 }}>
-            <InputBar onSend={send} disabled={streaming || !online} online={online} />
+            <InputBar
+              onSend={(t) => {
+                send(t);
+              }}
+              disabled={streaming || !online}
+              online={online}
+              attachments={pendingAtts}
+              onAttachmentsChange={setPendingAtts}
+              onPreviewAttachment={(a) => {
+                if (a.kind === 'image' && a.uri) openImageViewer(a.uri);
+              }}
+            />
           </View>
         </KeyboardAvoidingView>
       )}

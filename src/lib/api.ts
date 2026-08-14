@@ -1,4 +1,5 @@
 // src/lib/api.ts —— 桥接服务客户端（REST + WebSocket 流式）
+import * as FileSystem from 'expo-file-system';
 import type { ConnConfig } from './storage';
 
 export type Model = { id: string; name: string; provider: string };
@@ -10,7 +11,14 @@ export type SessionSummary = {
   messageCount: number;
   model: string | null;
 };
-export type Message = { id: string | null; role: 'user' | 'assistant'; content: string; createdAt: string | null };
+export type Attachment = {
+  kind: 'image' | 'file';
+  name: string;      // 文件名（含扩展名）
+  uri?: string;      // 本地文件 uri（已发送/本机存在时）
+  size?: number;     // 字节数
+};
+export type Uploaded = { fileId: string; name: string; kind: 'image' | 'file'; size: number };
+export type Message = { id: string | null; role: 'user' | 'assistant'; content: string; createdAt: string | null; attachments?: Attachment[] };
 export type SessionDetail = { session: SessionSummary; messages: Message[] };
 export type CronTask = {
   id: string;
@@ -88,6 +96,17 @@ export const api = {
   sessions: (c: ConnConfig) => jfetch<{ sessions: SessionSummary[] }>(c, '/api/sessions'),
   session: (c: ConnConfig, id: string) => jfetch<SessionDetail>(c, `/api/sessions/${encodeURIComponent(id)}`),
   cron: (c: ConnConfig) => jfetch<{ tasks: CronTask[] }>(c, '/api/cron'),
+  upload: async (c: ConnConfig, fileUri: string, name: string, kind: 'image' | 'file'): Promise<Uploaded> => {
+    const b64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
+    const baseUrl = await resolveActiveBaseUrl(c);
+    const res = await fetch(`${baseUrl}/api/upload`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${c.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, kind, dataBase64: b64 }),
+    });
+    if (!res.ok) throw new Error(`upload failed: ${res.status}`);
+    return (await res.json()) as Uploaded;
+  },
   removeSession: (c: ConnConfig, id: string) =>
     jfetch<{ ok: boolean }>(c, `/api/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   archiveSession: (c: ConnConfig, id: string) =>
@@ -107,7 +126,7 @@ export type StreamEvents = {
 
 export type StreamHandle = {
   stop: () => void;
-  send: (payload: { content: string; model?: string; sessionId?: string }) => boolean;
+  send: (payload: { content: string; model?: string; sessionId?: string; attachments?: { kind: 'image' | 'file'; fileId: string }[] }) => boolean;
   sendRaw: (data: object) => boolean;
 };
 
