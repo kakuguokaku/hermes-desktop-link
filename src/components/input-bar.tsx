@@ -1,9 +1,9 @@
 // src/components/input-bar.tsx —— 文字输入 + 语音 + 附件 + 发送（明暗自适应）
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import {
-  ActionSheetIOS,
   Alert,
   Image,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -12,6 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Speech from 'expo-speech-recognition';
 import * as ImagePicker from 'expo-image-picker';
@@ -25,6 +26,7 @@ const SpeechModule = Speech.ExpoSpeechRecognitionModule;
 const createStyles = (colors: Colors, font: FontTokens) =>
   StyleSheet.create({
     wrap: { paddingHorizontal: 12, paddingVertical: 8, backgroundColor: colors.bg },
+    flex: { flex: 1 },
     hint: {
       color: colors.warningText,
       fontSize: font.tiny,
@@ -92,6 +94,59 @@ const createStyles = (colors: Colors, font: FontTokens) =>
       marginLeft: 6,
     },
     sendDisabled: { backgroundColor: colors.textFaint },
+    // 底部附件菜单（按效果图：拖拽把手 + 标题 + 三图标横向）
+    backdrop: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0,0,0,0.4)',
+    },
+    sheet: {
+      backgroundColor: colors.card,
+      borderTopLeftRadius: 20,
+      borderTopRightRadius: 20,
+      paddingHorizontal: 16,
+      paddingTop: 10,
+      ...shadow.card,
+    },
+    sheetHandle: {
+      width: 40,
+      height: 4,
+      borderRadius: 4,
+      backgroundColor: colors.border,
+      alignSelf: 'center',
+      marginBottom: 14,
+    },
+    sheetTitle: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: colors.textPrimary,
+      textAlign: 'center',
+      marginBottom: 12,
+    },
+    sheetOps: { flexDirection: 'row', gap: 10 },
+    op: {
+      flex: 1,
+      alignItems: 'center',
+      gap: 6,
+      paddingVertical: 12,
+      borderRadius: 14,
+      backgroundColor: colors.borderSubtle,
+    },
+    opIcon: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: colors.card,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    opLabel: { fontSize: font.tiny, color: colors.textPrimary },
+    attachBtnActive: { backgroundColor: colors.accentFill },
   });
 
 export function InputBar({
@@ -111,11 +166,13 @@ export function InputBar({
 }) {
   const colors = useTheme();
   const font = useFont();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(colors, font), [colors, font]);
   const [text, setText] = useState('');
   const [listening, setListening] = useState(false);
   const [voiceHint, setVoiceHint] = useState<string | null>(null);
   const [localAtts, setLocalAtts] = useState<Attachment[]>(attachments ?? []);
+  const [menuOpen, setMenuOpen] = useState(false);
   const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => setLocalAtts(attachments ?? []), [attachments]);
@@ -168,26 +225,23 @@ export function InputBar({
     }
   }, []);
 
-  const openAttachMenu = useCallback(() => {
-    const act = (i: number) => {
-      if (i === 1) pickCamera();
-      else if (i === 2) pickAlbum();
-      else if (i === 3) pickFile();
-    };
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        { options: ['取消', '拍照', '相册', '文件'], cancelButtonIndex: 0 },
-        act
-      );
-    } else {
-      Alert.alert('插入附件', undefined, [
-        { text: '取消', style: 'cancel' },
-        { text: '拍照', onPress: pickCamera },
-        { text: '相册', onPress: pickAlbum },
-        { text: '文件', onPress: pickFile },
-      ]);
+  const openAttachMenu = useCallback(() => setMenuOpen(true), []);
+  const closeAttachMenu = useCallback(() => setMenuOpen(false), []);
+  // iOS：选完再开系统选择器，等 Modal 完全收起（onDismiss）避免「presentation in progress」
+  const pendingPick = useRef<(() => void) | null>(null);
+  const pickAfterClose = useCallback((fn: () => void) => {
+    if (Platform.OS !== 'ios') {
+      fn(); // Android Modal 无 onDismiss，直接开选择器
+      return;
     }
-  }, [pickCamera, pickAlbum, pickFile]);
+    pendingPick.current = fn;
+    setMenuOpen(false);
+  }, []);
+  const onSheetDismiss = useCallback(() => {
+    const fn = pendingPick.current;
+    pendingPick.current = null;
+    if (fn) fn();
+  }, []);
 
   const removeAtt = useCallback((idx: number) => {
     setLocalAtts((p) => p.filter((_, i) => i !== idx));
@@ -261,8 +315,12 @@ export function InputBar({
         </View>
       ) : null}
       <View style={styles.bar}>
-        <Pressable style={styles.attachBtn} onPress={openAttachMenu} accessibilityLabel="插入附件">
-          <Ionicons name="add" size={24} color={colors.accent} />
+        <Pressable
+          style={[styles.attachBtn, menuOpen && styles.attachBtnActive]}
+          onPress={openAttachMenu}
+          accessibilityLabel="插入附件"
+        >
+          <Ionicons name="add" size={24} color={menuOpen ? colors.card : colors.accent} />
         </Pressable>
         <TouchableOpacity
           onPress={toggleMic}
@@ -293,6 +351,55 @@ export function InputBar({
           <Ionicons name="arrow-up" size={20} color={colors.card} />
         </TouchableOpacity>
       </View>
+
+      {/* 附件底部菜单：拖拽把手 + 标题 + 三图标（拍照/相册/文件），点遮罩关闭 */}
+      <Modal
+        visible={menuOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={closeAttachMenu}
+        onDismiss={onSheetDismiss}
+      >
+        <View style={styles.flex}>
+          <Pressable style={styles.backdrop} onPress={closeAttachMenu} accessibilityLabel="关闭附件菜单" />
+          <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]}>
+            <View style={styles.sheetHandle} />
+            <Text style={styles.sheetTitle}>插入附件</Text>
+            <View style={styles.sheetOps}>
+              <Pressable
+                style={styles.op}
+                onPress={() => pickAfterClose(pickCamera)}
+                accessibilityLabel="拍照"
+              >
+                <View style={styles.opIcon}>
+                  <Ionicons name="camera-outline" size={16} color={colors.accent} />
+                </View>
+                <Text style={styles.opLabel}>拍照</Text>
+              </Pressable>
+              <Pressable
+                style={styles.op}
+                onPress={() => pickAfterClose(pickAlbum)}
+                accessibilityLabel="相册"
+              >
+                <View style={styles.opIcon}>
+                  <Ionicons name="images-outline" size={16} color={colors.accent} />
+                </View>
+                <Text style={styles.opLabel}>相册</Text>
+              </Pressable>
+              <Pressable
+                style={styles.op}
+                onPress={() => pickAfterClose(pickFile)}
+                accessibilityLabel="文件"
+              >
+                <View style={styles.opIcon}>
+                  <Ionicons name="document-outline" size={16} color={colors.accent} />
+                </View>
+                <Text style={styles.opLabel}>文件</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

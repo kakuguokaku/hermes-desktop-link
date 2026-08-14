@@ -2,7 +2,7 @@
   "expo": {
     "name": "KAKU Hermes",
     "slug": "kaku-hermes",
-    "version": "1.0.10",
+    "version": "1.0.11",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "hermesdl",
@@ -22,6 +22,20 @@
         "CFBundleLocalizations": [
           "zh-Hans",
           "en"
+        ],
+        "LSSupportsOpeningDocumentsInPlace": false,
+        "CFBundleDocumentTypes": [
+          {
+            "CFBundleTypeName": "Files",
+            "LSHandlerRank": "Alternate",
+            "LSItemContentTypes": [
+              "public.data",
+              "public.image",
+              "public.pdf",
+              "public.audio",
+              "public.movie"
+            ]
+          }
         ]
       }
     },
