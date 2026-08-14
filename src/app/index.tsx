@@ -46,13 +46,14 @@ export default function ConversationsScreen() {
   const styles = useMemo(() => createStyles(colors), [colors]);
   const router = useRouter();
   const [config, setConfig] = useState<ConnConfig | null>(null);
-  const [viewMode, setViewMode] = useState<'sessions' | 'tasks'>('sessions');
+  const [chatOpen, setChatOpen] = useState(true); // 最近会话：默认展开
+  const [taskOpen, setTaskOpen] = useState(false); // 定时任务：默认收起，独立开关
   const [query, setQuery] = useState('');
   const [refreshTick, setRefreshTick] = useState(0);
   const [kavEpoch, setKavEpoch] = useState(0); // 回前台时强制 KeyboardAvoidingView 重新计算布局
   const listRef = useRef<ConversationListHandle>(null);
-
-  const collapseTasks = useCallback(() => setViewMode('sessions'), []);
+  // 布局原则：定时任务默认固定搜索栏上方；仅当「最近会话」收起时任务面板上升占满空区
+  const taskRisen = taskOpen && !chatOpen;
 
   // 搜索栏开着键盘切后台再回来：iOS 会收起键盘但 KAV 残留高度 → 白屏。后台 dismiss + 回前台强制重算。
   const appStateRef = useRef(AppState.currentState);
@@ -97,7 +98,7 @@ export default function ConversationsScreen() {
     <View style={styles.root}>
       <Stack.Screen
         options={{
-          title: viewMode === 'tasks' ? '任务' : '会话',
+          title: taskOpen ? '任务' : '会话',
           headerRight: () => (
             <View style={styles.headerBtns}>
               <Pressable
@@ -143,21 +144,23 @@ export default function ConversationsScreen() {
             config={config}
             showActions={false}
             showSectionHeader
+            expanded={chatOpen}
+            onToggleExpanded={() => setChatOpen((o) => !o)}
             query={query}
             reloadTick={refreshTick}
-            onUserScroll={viewMode === 'tasks' ? collapseTasks : undefined}
             onSelect={(id) => router.push({ pathname: '/chat/[id]', params: { id } })}
           />
-          {/* 定时任务面板 + 搜索栏：键盘弹起时整体升到键盘上方 */}
+          {/* 定时任务面板 + 搜索栏：键盘弹起时整体升到键盘上方；最近会话收起时面板上升占满 */}
           <KeyboardAvoidingView
+            style={taskRisen ? styles.flex : undefined}
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             keyboardVerticalOffset={Platform.OS === 'ios' ? 88 + (kavEpoch % 2) : 0}
           >
             <TaskPanel
               config={config}
-              expanded={viewMode === 'tasks'}
-              onToggle={() => setViewMode((m) => (m === 'tasks' ? 'sessions' : 'tasks'))}
-              onCollapse={collapseTasks}
+              expanded={taskOpen}
+              fill={taskRisen}
+              onToggle={() => setTaskOpen((o) => !o)}
             />
             <View style={styles.searchWrap}>
               <View style={styles.searchBar}>

@@ -1,25 +1,28 @@
-// src/components/task-panel.tsx —— 定时任务面板（锚定搜索栏上方；展开 2 条，点/搓上方列表自动收回）
+// src/components/task-panel.tsx —— 定时任务面板（与「最近会话」同级的折叠菜单；展开显示全部任务、面板内可滑动）
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { api, type CronTask } from '../lib/api';
 import type { ConnConfig } from '../lib/storage';
-import { font, radius, type Colors } from '../lib/theme';
-import { useTheme } from '../lib/theme-context';
+import { font, radius, type Colors, type FontTokens } from '../lib/theme';
+import { useFont, useTheme } from '../lib/theme-context';
+import { GroupToggle } from './group-toggle';
 
 export function TaskPanel({
   config,
   expanded,
   onToggle,
-  onCollapse,
+  fill = false,
 }: {
   config: ConnConfig;
   expanded: boolean;
   onToggle: () => void;
-  onCollapse: () => void;
+  /** 最近会话收起时置 true：面板上升占满空区，任务列表不再限高 */
+  fill?: boolean;
 }) {
   const colors = useTheme();
-  const styles = useMemoStyles(colors);
+  const font = useFont();
+  const styles = useMemoStyles(colors, font);
   const [tasks, setTasks] = useState<CronTask[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -27,7 +30,7 @@ export function TaskPanel({
     setLoading(true);
     try {
       const r = await api.cron(config);
-      setTasks(r.tasks.slice(0, 2));
+      setTasks(r.tasks);
     } catch {
       setTasks([]);
     } finally {
@@ -35,64 +38,55 @@ export function TaskPanel({
     }
   }, [config]);
 
+  // 挂载即加载一次（数量角标需要真实条数；bridge 端有 30s 缓存，代价低）
   useEffect(() => {
-    if (expanded && tasks.length === 0 && !loading) load();
-  }, [expanded, tasks.length, loading, load]);
+    if (tasks.length === 0 && !loading) load();
+  }, [tasks.length, loading, load]);
 
   return (
     <View style={styles.panel}>
-      <Pressable style={[styles.toggle, expanded && styles.toggleOpen]} onPress={onToggle} accessibilityLabel="定时任务">
-        <Ionicons name="time-outline" size={17} color={colors.accent} />
-        <Text style={styles.name}>定时任务</Text>
-        <Text style={styles.count}>{expanded ? '2 条' : '2'}</Text>
-        <Ionicons name={expanded ? 'chevron-down' : 'chevron-forward'} size={14} color={colors.textMuted} />
-      </Pressable>
+      <GroupToggle title="定时任务" count={tasks.length} expanded={expanded} onPress={onToggle} />
       {expanded ? (
         loading ? (
           <View style={styles.center}>
             <ActivityIndicator size="small" color={colors.accent} />
           </View>
         ) : (
-          tasks.map((t) => (
-            <Pressable key={t.id} style={styles.task} onPress={onCollapse} accessibilityLabel={t.name}>
-              <View style={styles.taskIcon}>
-                <Ionicons name="time-outline" size={17} color={colors.accent} />
-              </View>
-              <View style={styles.taskBody}>
-                <View style={styles.taskTop}>
-                  <Text style={styles.taskTitle} numberOfLines={1}>
-                    {t.name}
-                  </Text>
-                  {t.active ? <Text style={styles.state}>运行中</Text> : null}
+          <ScrollView
+            style={fill ? styles.taskScrollFill : styles.taskScroll}
+            showsVerticalScrollIndicator={false}
+            nestedScrollEnabled
+          >
+            {tasks.map((t) => (
+              <View key={t.id} style={styles.task}>
+                <View style={styles.taskIcon}>
+                  <Ionicons name="time-outline" size={17} color={colors.accent} />
                 </View>
-                <Text style={styles.taskMeta} numberOfLines={1}>
-                  {[t.scheduleText, t.nextRunText ? `下次 ${t.nextRunText}` : ''].filter(Boolean).join(' · ')}
-                </Text>
+                <View style={styles.taskBody}>
+                  <View style={styles.taskTop}>
+                    <Text style={styles.taskTitle} numberOfLines={1}>
+                      {t.name}
+                    </Text>
+                    {t.active ? <Text style={styles.state}>运行中</Text> : null}
+                  </View>
+                  <Text style={styles.taskMeta} numberOfLines={1}>
+                    {[t.scheduleText, t.nextRunText ? `下次 ${t.nextRunText}` : ''].filter(Boolean).join(' · ')}
+                  </Text>
+                </View>
               </View>
-            </Pressable>
-          ))
+            ))}
+          </ScrollView>
         )
       ) : null}
     </View>
   );
 }
 
-function useMemoStyles(colors: Colors) {
+function useMemoStyles(colors: Colors, font: FontTokens) {
   return StyleSheet.create({
-    panel: { padding: 8, paddingHorizontal: 12, paddingBottom: 2, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderSubtle, backgroundColor: colors.bg },
-    toggle: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 8,
-      padding: 11,
-      backgroundColor: colors.card,
-      borderRadius: radius.card,
-      borderWidth: StyleSheet.hairlineWidth,
-      borderColor: colors.border,
-    },
-    toggleOpen: { borderColor: colors.accent },
-    name: { fontSize: font.body, fontWeight: '700', color: colors.textPrimary, flex: 1 },
-    count: { fontSize: font.tiny, color: colors.textMuted, fontWeight: '600' },
+    panel: { padding: 8, paddingHorizontal: 12, paddingBottom: 2, backgroundColor: colors.bg },
+    taskScroll: { maxHeight: 150, paddingBottom: 4 }, // 只露出约 2 条，上滑查看全部
+    taskScrollFill: { flex: 1, paddingBottom: 4 }, // 最近会话收起时占满剩余空间
     task: {
       flexDirection: 'row',
       alignItems: 'center',
@@ -102,7 +96,7 @@ function useMemoStyles(colors: Colors) {
       borderRadius: radius.card,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.borderSubtle,
-      marginTop: 8,
+      marginBottom: 8,
     },
     taskIcon: { width: 34, height: 34, borderRadius: 11, backgroundColor: colors.accentSoft, alignItems: 'center', justifyContent: 'center' },
     taskBody: { flex: 1 },

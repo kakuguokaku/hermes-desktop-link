@@ -162,11 +162,11 @@ export default function SettingsScreen() {
           </View>
           <Pressable onPress={testConn} hitSlop={8}>
             {connStatus === 'open' ? (
-              <Text style={[styles.value, { color: colors.successText }]}>已连接 ✓</Text>
+              <Text numberOfLines={1} style={[styles.value, { color: colors.successText }]}>已连接 ✓</Text>
             ) : connStatus === 'connecting' ? (
-              <Text style={styles.value}>连接中…</Text>
+              <Text numberOfLines={1} style={styles.value}>连接中…</Text>
             ) : (
-              <Text style={[styles.value, { color: colors.errorText }]}>未连接 ✗</Text>
+              <Text numberOfLines={1} style={[styles.value, { color: colors.errorText }]}>未连接 ✗</Text>
             )}
           </Pressable>
         </View>

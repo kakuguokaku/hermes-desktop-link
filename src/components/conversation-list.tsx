@@ -22,6 +22,7 @@ import { connection } from '../lib/connection';
 import type { ConnConfig } from '../lib/storage';
 import { radius, shadow, type Colors, type FontTokens } from '../lib/theme';
 import { useFont, useTheme } from '../lib/theme-context';
+import { GroupToggle } from './group-toggle';
 
 export type ConversationListHandle = {
   beginArchive: () => void;
@@ -38,9 +39,9 @@ function fmtTime(raw: string | null): string {
   return s;
 }
 
-const createStyles = (colors: Colors, font: FontTokens) =>
+const createStyles = (colors: Colors, font: FontTokens, expanded: boolean) =>
   StyleSheet.create({
-    root: { flex: 1, backgroundColor: colors.bg },
+    root: { flex: expanded ? 1 : 0, backgroundColor: colors.bg }, // 收起时收缩到内容高度，让下方任务面板可上升
     center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 8 },
     errText: { color: colors.textSecondary, fontSize: font.body, textAlign: 'center' },
     emptyText: { color: colors.textMuted, fontSize: font.body },
@@ -70,11 +71,6 @@ const createStyles = (colors: Colors, font: FontTokens) =>
     selectCount: { fontSize: font.body, fontWeight: '600', color: colors.textPrimary },
     confirmText: { fontSize: font.body, fontWeight: '700', color: colors.accent },
     confirmDelete: { color: colors.errorText },
-    // 分组头（最近会话）
-    groupHead: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4, paddingTop: 12, paddingBottom: 8 },
-    groupTitle: { fontSize: font.h2, fontWeight: '700', color: colors.textPrimary },
-    groupCount: { backgroundColor: colors.borderSubtle, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 1 },
-    groupCountText: { fontSize: font.tiny, color: colors.textMuted, fontWeight: '600' },
     list: { paddingHorizontal: 12, paddingTop: 4, paddingBottom: 12 },
     // 紧凑单行会话条目：图标与标题上下居中，标题左对齐，时间右对齐
     item: {
@@ -112,17 +108,18 @@ export const ConversationList = forwardRef<
     onClose?: () => void;
     showActions?: boolean;
     query?: string;
-    onUserScroll?: () => void;
     showSectionHeader?: boolean;
+    expanded?: boolean;
+    onToggleExpanded?: () => void;
     reloadTick?: number;
   }
 >(function ConversationList(
-  { config, onSelect, onClose, showActions = true, query: queryProp, onUserScroll, showSectionHeader = false, reloadTick },
+  { config, onSelect, onClose, showActions = true, query: queryProp, showSectionHeader = false, expanded = true, onToggleExpanded, reloadTick },
   ref
 ) {
   const colors = useTheme();
   const font = useFont();
-  const styles = useMemo(() => createStyles(colors, font), [colors, font]);
+  const styles = useMemo(() => createStyles(colors, font, expanded), [colors, font, expanded]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -259,35 +256,28 @@ export const ConversationList = forwardRef<
       )}
 
       {showSectionHeader ? (
-        <View style={styles.groupHead}>
-          <Ionicons name="chevron-down" size={13} color={colors.textMuted} />
-          <Text style={styles.groupTitle}>最近会话</Text>
-          <View style={styles.groupCount}>
-            <Text style={styles.groupCountText}>{sessions.length}</Text>
-          </View>
-        </View>
+        <GroupToggle title="最近会话" count={sessions.length} expanded={expanded} onPress={onToggleExpanded ?? (() => {})} />
       ) : null}
 
-      {loading ? (
+      {expanded && loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.accent} />
         </View>
-      ) : error ? (
+      ) : expanded && error ? (
         <View style={styles.center}>
           <Ionicons name="cloud-offline-outline" size={32} color={colors.textMuted} />
           <Text style={styles.errText}>{error}</Text>
         </View>
-      ) : filtered.length === 0 ? (
+      ) : expanded && filtered.length === 0 ? (
         <View style={styles.center}>
           <Ionicons name="chatbubbles-outline" size={32} color={colors.textMuted} />
           <Text style={styles.emptyText}>{query ? '没有匹配的对话' : '还没有对话'}</Text>
         </View>
-      ) : (
+      ) : expanded ? (
         <FlatList
           data={filtered}
           keyExtractor={(s) => s.id}
           contentContainerStyle={styles.list}
-          onScrollBeginDrag={() => onUserScroll?.()}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
           }
@@ -318,7 +308,7 @@ export const ConversationList = forwardRef<
             </Pressable>
           )}
         />
-      )}
+      ) : null}
     </View>
   );
 });
