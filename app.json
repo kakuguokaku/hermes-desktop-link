@@ -2,7 +2,7 @@
   "expo": {
     "name": "KAKU Hermes",
     "slug": "kaku-hermes",
-    "version": "1.0.11",
+    "version": "1.0.12",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "hermesdl",
@@ -61,6 +61,7 @@
       [
         "expo-share-intent",
         {
+          "disableIOS": true,
           "iosActivationRules": {
             "NSExtensionActivationSupportsText": true,
             "NSExtensionActivationSupportsWebURLWithMaxCount": 1,

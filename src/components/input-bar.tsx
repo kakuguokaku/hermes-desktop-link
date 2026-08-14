@@ -26,7 +26,8 @@ const SpeechModule = Speech.ExpoSpeechRecognitionModule;
 const createStyles = (colors: Colors, font: FontTokens) =>
   StyleSheet.create({
     wrap: { paddingHorizontal: 12, paddingVertical: 8, backgroundColor: colors.bg },
-    flex: { flex: 1 },
+    // 弹层容器：占满屏、内容靠底，sheet 才在屏幕底部弹出
+    sheetWrap: { flex: 1, justifyContent: 'flex-end' },
     hint: {
       color: colors.warningText,
       fontSize: font.tiny,
@@ -360,7 +361,7 @@ export function InputBar({
         onRequestClose={closeAttachMenu}
         onDismiss={onSheetDismiss}
       >
-        <View style={styles.flex}>
+        <View style={styles.sheetWrap}>
           <Pressable style={styles.backdrop} onPress={closeAttachMenu} accessibilityLabel="关闭附件菜单" />
           <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) }]}>
             <View style={styles.sheetHandle} />

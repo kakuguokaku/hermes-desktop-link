@@ -1,9 +1,10 @@
-// src/lib/share-intent.ts —— iOS 分享扩展 + 系统「打开/拷贝到」桥接
+// src/lib/share-intent.ts —— iOS 分享扩展 + 系统「拷贝到」兜底桥接
 // expo-share-intent 要求 useShareIntent 在根布局调用；结果写入模块级单例，share 页读取。
-// 另外监听系统 file:// 深链（"拷贝到 KAKU Hermes" → 文件落 Documents/Inbox，免 App Group），
-// 一并转入分享流程，作为分享扩展在免费签名下不工作的兜底。
+// 兜底：系统「拷贝到 KAKU Hermes」把文件落 Documents/Inbox（免 App Group，免费签名可用），
+// 启动 + 每次回前台扫 Inbox，取最新文件移出后进分享流程。
 import { useEffect } from 'react';
-import { addEventListener as linkingAddListener, getInitialURL } from 'expo-linking';
+import { AppState } from 'react-native';
+import { Directory, File, Paths } from 'expo-file-system';
 import { useShareIntent } from 'expo-share-intent';
 
 export type IncomingShare = {
@@ -61,15 +62,28 @@ function mimeFromName(name: string): string {
   return MIME_BY_EXT[ext] ?? 'application/octet-stream';
 }
 
-/** 把系统 file:// 深链（Documents/Inbox 里被拷入的文件）转成分享数据 */
-export function shareFromFileUrl(url: string): IncomingShare | null {
-  if (!url.startsWith('file://')) return null;
-  const uri = decodeURIComponent(url); // file:// 完整 URI：预览 Image 与上传 readAsStringAsync 都需要
-  const fileName = uri.replace(/^file:\/\//, '').split('/').pop() || '附件';
-  return { files: [{ path: uri, fileName, mimeType: mimeFromName(fileName) }] };
+/** 扫描 Documents/Inbox（系统「拷贝到 KAKU Hermes」落文件处），取最新文件并移到缓存避免重复触发 */
+async function takeInboxFile(): Promise<IncomingShare | null> {
+  try {
+    const inbox = new Directory(Paths.document, 'Inbox');
+    if (!inbox.exists) return null;
+    const files = inbox.list().filter((e): e is File => e instanceof File);
+    if (files.length === 0) return null;
+    files.sort((a, b) => (b.modificationTime ?? 0) - (a.modificationTime ?? 0));
+    const newest = files[0];
+    let path = newest.uri;
+    try {
+      const dest = new File(Paths.cache, `inbox_${Date.now()}_${newest.name}`);
+      newest.move(dest);
+      path = dest.uri;
+    } catch {}
+    return { files: [{ path, fileName: newest.name, mimeType: mimeFromName(newest.name) }] };
+  } catch {
+    return null;
+  }
 }
 
-/** 根布局调用：把 expo-share-intent 结果 + 系统 file:// 深链同步到单例 */
+/** 根布局调用：把 expo-share-intent 结果 + Inbox 兜底同步到单例 */
 export function useShareIntentBridge() {
   const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntent();
   useEffect(() => {
@@ -79,13 +93,13 @@ export function useShareIntentBridge() {
     }
   }, [hasShareIntent, shareIntent]);
 
+  // 「拷贝到 KAKU Hermes」兜底：扫 Inbox（免 App Group），冷启动 + 每次回前台
   useEffect(() => {
-    const handleUrl = (raw: string | null) => {
-      const s = raw ? shareFromFileUrl(raw) : null;
-      if (s) setIncomingShare(s);
-    };
-    const sub = linkingAddListener('url', (e) => handleUrl(e.url));
-    getInitialURL().then(handleUrl);
+    const check = () => takeInboxFile().then((s) => s && setIncomingShare(s));
+    check();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') check();
+    });
     return () => sub.remove();
   }, []);
 

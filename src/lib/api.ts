@@ -1,5 +1,6 @@
 // src/lib/api.ts —— 桥接服务客户端（REST + WebSocket 流式）
-import * as FileSystem from 'expo-file-system';
+// 注意：SDK57 expo-file-system 根导出的 readAsStringAsync 是抛错 shim，须走 /legacy 真实实现
+import * as FileSystem from 'expo-file-system/legacy';
 import type { ConnConfig } from './storage';
 
 export type Model = { id: string; name: string; provider: string };
