@@ -65,7 +65,9 @@ export function MessageBubble({
   const font = useFont();
   const styles = useMemo(() => createStyles(colors, font), [colors, font]);
   const isUser = message.role === 'user';
-  const fallback = message.content || (isStreaming ? '' : '(空回复)');
+  // 空的 assistant 消息（非流式中）不渲染：避免残留 "（空回复）"/空白气泡（如工具调用产生的空消息）
+  if (!isUser && !message.content && !isStreaming) return null;
+  const fallback = message.content || '';
   const plain = !hasMarkdown(fallback);
   return (
     <View style={[styles.row, isUser ? styles.rowUser : styles.rowAssistant]}>
@@ -85,13 +87,15 @@ export function MessageBubble({
           <Text selectable style={styles.userText}>
             {message.content}
           </Text>
-        ) : plain ? (
-          <Text selectable style={styles.assistantPlainText}>
-            {fallback}
-          </Text>
-        ) : (
-          <MarkdownText onImagePress={onImagePress}>{fallback}</MarkdownText>
-        )}
+        ) : fallback.length > 0 ? (
+          plain ? (
+            <Text selectable style={styles.assistantPlainText}>
+              {fallback}
+            </Text>
+          ) : (
+            <MarkdownText onImagePress={onImagePress}>{fallback}</MarkdownText>
+          )
+        ) : null}
         {isStreaming && message.content.length === 0 && (
           <View style={styles.typing}>
             {[0, 1, 2].map((i) => (

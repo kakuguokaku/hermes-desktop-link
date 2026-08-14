@@ -30,6 +30,7 @@ import {
 import { connection } from '../../lib/connection';
 import type { Status } from '../../lib/connection';
 import { getConfig, getPrefs, savePrefs, type ConnConfig } from '../../lib/storage';
+import { unread } from '../../lib/unread';
 import { radius, type Colors, type FontTokens } from '../../lib/theme';
 import { useFont, useTheme } from '../../lib/theme-context';
 
@@ -112,6 +113,7 @@ export default function ChatScreen() {
   streamingRef.current = streaming;
   const stickToBottom = useRef(true); // 贴底跟随：用户上翻历史时不强制拉回
   const lastActivityRef = useRef(0); // 流式看门狗：最近一次 delta 活动时间
+  const activeReqRef = useRef<string | null>(null); // 当前流式请求 id（placeholder）：只处理本会话的事件
   // 反向渲染（微信式）：最新一条固定在 index 0（屏幕底端），打开即在最新、键盘弹起不遮挡
   const invertedMessages = useMemo(() => [...messages].reverse(), [messages]);
 
@@ -188,6 +190,12 @@ export default function ChatScreen() {
     });
   }, [config, refreshSession]);
 
+  // 标记"正在查看的会话"：自身更新不点亮未读标记；离开时清除
+  useEffect(() => {
+    unread.setCurrent(sessionId);
+    return () => unread.setCurrent(null);
+  }, [sessionId]);
+
   // 键盘开着切后台再回来：iOS 会收起键盘但 KAV 残留键盘高度 → 白屏只剩输入框。
   // 后台时主动 dismiss（触发 hide 事件清 padding），回前台再强制 KAV 重算布局。
   const appStateRef = useRef(AppState.currentState);
@@ -208,8 +216,9 @@ export default function ChatScreen() {
   useEffect(() => {
     if (!config) return;
     connection.setStreamHandlers({
-      onDelta: (_sid, delta) => {
+      onDelta: (_sid, delta, reqId) => {
         if (!streamingRef.current) return;
+        if (reqId !== undefined && reqId !== activeReqRef.current) return; // 只处理本请求的流式
         lastActivityRef.current = Date.now();
         setMessages((prev) => {
           const next = [...prev];
@@ -220,14 +229,18 @@ export default function ChatScreen() {
           return next;
         });
       },
-      onComplete: (realId) => {
+      onComplete: (realId, reqId) => {
+        if (reqId !== undefined && reqId !== activeReqRef.current) return; // 忽略其它会话（后台并发）的完成，避免自动跳转
+        activeReqRef.current = null;
         setStreaming(false);
         if (SESSION_RE.test(realId || '')) {
           if (!sessionIdRef.current || sessionIdRef.current !== realId) setSessionId(realId);
           refreshSession(config, realId);
         }
       },
-      onError: (_sid, error) => {
+      onError: (_sid, error, reqId) => {
+        if (reqId !== undefined && reqId !== activeReqRef.current) return;
+        activeReqRef.current = null;
         setStreaming(false);
         setMessages((prev) => [
           ...prev,
@@ -254,6 +267,7 @@ export default function ChatScreen() {
     (text: string) => {
       if (!config || streamingRef.current) return;
       const ph = sessionIdRef.current || `app-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      activeReqRef.current = ph;
       setMessages((prev) => [
         ...prev,
         { id: null, role: 'user', content: text, createdAt: null },
@@ -266,6 +280,7 @@ export default function ChatScreen() {
         sessionId: ph,
       });
       if (!ok) {
+        activeReqRef.current = null;
         setStreaming(false);
         setMessages((prev) => [
           ...prev,

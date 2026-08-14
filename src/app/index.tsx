@@ -17,6 +17,7 @@ import { ConversationList, type ConversationListHandle } from '../components/con
 import { TaskPanel } from '../components/task-panel';
 import { connection } from '../lib/connection';
 import { getConfig, type ConnConfig } from '../lib/storage';
+import { unread } from '../lib/unread';
 import { font, radius, type Colors } from '../lib/theme';
 import { useTheme } from '../lib/theme-context';
 
@@ -51,6 +52,7 @@ export default function ConversationsScreen() {
   const [query, setQuery] = useState('');
   const [refreshTick, setRefreshTick] = useState(0);
   const [kavEpoch, setKavEpoch] = useState(0); // 回前台时强制 KeyboardAvoidingView 重新计算布局
+  const [updatedIds, setUpdatedIds] = useState<Set<string>>(() => unread.snapshot()); // 会话栏"有更新"标记
   const listRef = useRef<ConversationListHandle>(null);
   // 布局原则：定时任务默认固定搜索栏上方；仅当「最近会话」收起时任务面板上升占满空区
   const taskRisen = taskOpen && !chatOpen;
@@ -91,8 +93,18 @@ export default function ConversationsScreen() {
     }, [router])
   );
 
-  // 收到 session.updated（发完消息等）→ 刷新列表
-  useEffect(() => connection.subscribeSessionUpdated(() => setRefreshTick((t) => t + 1)), []);
+  // 未读更新标记：后台/其它会话更新时点亮；点进去清除
+  useEffect(() => unread.subscribe(() => setUpdatedIds(unread.snapshot())), []);
+
+  // 收到 session.updated（发完消息等）→ 点亮更新标记 + 刷新列表
+  useEffect(
+    () =>
+      connection.subscribeSessionUpdated((sid) => {
+        unread.mark(sid);
+        setRefreshTick((t) => t + 1);
+      }),
+    []
+  );
 
   return (
     <View style={styles.root}>
@@ -148,7 +160,13 @@ export default function ConversationsScreen() {
             onToggleExpanded={() => setChatOpen((o) => !o)}
             query={query}
             reloadTick={refreshTick}
-            onSelect={(id) => router.push({ pathname: '/chat/[id]', params: { id } })}
+            updatedIds={updatedIds}
+            onUserScroll={taskOpen ? () => setTaskOpen(false) : undefined}
+            onSelect={(id) => {
+              unread.clear(id);
+              unread.setCurrent(id);
+              router.push({ pathname: '/chat/[id]', params: { id } });
+            }}
           />
           {/* 定时任务面板 + 搜索栏：键盘弹起时整体升到键盘上方；最近会话收起时面板上升占满 */}
           <KeyboardAvoidingView

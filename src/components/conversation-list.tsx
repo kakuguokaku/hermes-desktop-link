@@ -98,6 +98,7 @@ const createStyles = (colors: Colors, font: FontTokens, expanded: boolean) =>
     },
     itemTitle: { flex: 1, fontSize: font.body, fontWeight: '600', color: colors.textPrimary, textAlign: 'left' },
     itemTime: { fontSize: font.tiny, color: colors.textMuted, marginLeft: 8 },
+    unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.accent, marginLeft: 8 },
   });
 
 export const ConversationList = forwardRef<
@@ -112,9 +113,11 @@ export const ConversationList = forwardRef<
     expanded?: boolean;
     onToggleExpanded?: () => void;
     reloadTick?: number;
+    updatedIds?: Set<string>;
+    onUserScroll?: () => void;
   }
 >(function ConversationList(
-  { config, onSelect, onClose, showActions = true, query: queryProp, showSectionHeader = false, expanded = true, onToggleExpanded, reloadTick },
+  { config, onSelect, onClose, showActions = true, query: queryProp, showSectionHeader = false, expanded = true, onToggleExpanded, reloadTick, updatedIds, onUserScroll },
   ref
 ) {
   const colors = useTheme();
@@ -278,6 +281,7 @@ export const ConversationList = forwardRef<
           data={filtered}
           keyExtractor={(s) => s.id}
           contentContainerStyle={styles.list}
+          onScrollBeginDrag={() => onUserScroll?.()}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.accent} />
           }
@@ -304,6 +308,7 @@ export const ConversationList = forwardRef<
               <Text style={styles.itemTitle} numberOfLines={1}>
                 {item.title || '未命名对话'}
               </Text>
+              {updatedIds?.has(item.id) ? <View style={styles.unreadDot} /> : null}
               <Text style={styles.itemTime}>{fmtTime(item.updatedAt)}</Text>
             </Pressable>
           )}

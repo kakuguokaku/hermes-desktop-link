@@ -8,9 +8,9 @@ import type { ConnConfig } from './storage';
 
 export type Status = 'connecting' | 'open' | 'closed';
 export type StreamHandlers = {
-  onDelta: (sessionId: string, delta: string) => void;
-  onComplete: (sessionId: string) => void;
-  onError: (sessionId: string, error: string) => void;
+  onDelta: (sessionId: string, delta: string, reqId?: string) => void;
+  onComplete: (sessionId: string, reqId?: string) => void;
+  onError: (sessionId: string, error: string, reqId?: string) => void;
 };
 
 const HEARTBEAT_INTERVAL = 25000; // 每 25s 发一次 ping 保活
@@ -101,9 +101,9 @@ function startStream() {
         setStatus(s);
       }
     },
-    onDelta: (sid, delta) => { if (myEpoch === epoch) handlers?.onDelta(sid, delta); },
-    onComplete: (sid) => { if (myEpoch === epoch) handlers?.onComplete(sid); },
-    onError: (sid, err) => { if (myEpoch === epoch) handlers?.onError(sid, err); },
+    onDelta: (sid, delta, reqId) => { if (myEpoch === epoch) handlers?.onDelta(sid, delta, reqId); },
+    onComplete: (sid, reqId) => { if (myEpoch === epoch) handlers?.onComplete(sid, reqId); },
+    onError: (sid, err, reqId) => { if (myEpoch === epoch) handlers?.onError(sid, err, reqId); },
     onRawMessage: (msg) => {
       if (myEpoch !== epoch) return;
       if (msg?.type === 'pong') onPong();

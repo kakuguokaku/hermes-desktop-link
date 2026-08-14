@@ -98,9 +98,9 @@ export const api = {
 
 // ---------- WebSocket 流式 ----------
 export type StreamEvents = {
-  onDelta: (sessionId: string, delta: string) => void;
-  onComplete: (sessionId: string) => void;
-  onError: (sessionId: string, error: string) => void;
+  onDelta: (sessionId: string, delta: string, reqId?: string) => void;
+  onComplete: (sessionId: string, reqId?: string) => void;
+  onError: (sessionId: string, error: string, reqId?: string) => void;
   onStatus?: (status: 'connecting' | 'open' | 'closed') => void;
   onRawMessage?: (msg: any) => void;
 };
@@ -141,9 +141,9 @@ export function openStream(c: ConnConfig, events: StreamEvents): StreamHandle {
           } catch {
             return;
           }
-          if (ev.type === 'message.delta') events.onDelta(ev.sessionId, ev.delta);
-          else if (ev.type === 'message.complete') events.onComplete(ev.sessionId);
-          else if (ev.type === 'message.error') events.onError(ev.sessionId, ev.error);
+          if (ev.type === 'message.delta') events.onDelta(ev.sessionId, ev.delta, ev.reqId);
+          else if (ev.type === 'message.complete') events.onComplete(ev.sessionId, ev.reqId);
+          else if (ev.type === 'message.error') events.onError(ev.sessionId, ev.error, ev.reqId);
           else events.onRawMessage?.(ev);
         };
         ws.onclose = () => {
