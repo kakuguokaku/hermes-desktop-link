@@ -1,5 +1,6 @@
 // src/components/message-bubble.tsx —— 消息气泡（明暗自适应）
-import React, { useMemo } from 'react';
+// v1.0.13：支持历史消息附件渲染（@image/@file 标记 → 缩略图/文件芯片）+ 隐藏 Hermes 图片长描述
+import React, { useEffect, useMemo, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { Attachment, Message } from '../lib/api';
@@ -7,6 +8,24 @@ import { radius, shadow, type Colors, type FontTokens } from '../lib/theme';
 import { useFont, useTheme } from '../lib/theme-context';
 import { MarkdownText } from './markdown';
 import { hasMarkdown } from '../lib/markdown-detect';
+
+// 解析历史用户消息：提取 @image:<路径> / @file:<路径> 的 fileId（basename），返回清理后正文
+function parseContentAttachments(content: string) {
+  const images: string[] = [];
+  const files: string[] = [];
+  const text = String(content || '')
+    .replace(/@image:(\S+)/g, (_m, p) => {
+      images.push(p.split(/[\\/]/).pop() || '');
+      return '';
+    })
+    .replace(/@file:(\S+)/g, (_m, p) => {
+      files.push(p.split(/[\\/]/).pop() || '');
+      return '';
+    })
+    .replace(/\s+/g, ' ')
+    .trim();
+  return { images, files, text };
+}
 
 const createStyles = (colors: Colors, font: FontTokens) =>
   StyleSheet.create({
@@ -69,11 +88,17 @@ export function MessageBubble({
   isStreaming,
   onImagePress,
   onAttachmentPress,
+  onFetchUpload,
+  onOpenHistoryFile,
 }: {
   message: Message;
   isStreaming?: boolean;
   onImagePress?: (uri: string) => void;
   onAttachmentPress?: (a: Attachment) => void;
+  /** 拉取历史附件为 base64 data URL（图片缩略图用） */
+  onFetchUpload?: (fileId: string) => Promise<string>;
+  /** 打开历史文件（下载到缓存后分享） */
+  onOpenHistoryFile?: (fileId: string, name: string) => void;
 }) {
   const colors = useTheme();
   const font = useFont();
@@ -83,6 +108,34 @@ export function MessageBubble({
   if (!isUser && !message.content && !isStreaming) return null;
   const fallback = message.content || '';
   const plain = !hasMarkdown(fallback);
+
+  // 历史图片缩略图：异步拉取 data URL
+  const [histImages, setHistImages] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!isUser) return;
+    const { images } = parseContentAttachments(message.content || '');
+    if (!images.length || !onFetchUpload) return;
+    let alive = true;
+    images.forEach((fid) => {
+      onFetchUpload(fid)
+        .then((u) => {
+          if (alive) setHistImages((prev) => ({ ...prev, [fid]: u }));
+        })
+        .catch(() => {});
+    });
+    return () => {
+      alive = false;
+    };
+  }, [message.content, isUser, onFetchUpload]);
+
+  const { images: histImageIds, files: histFiles, text } = useMemo(
+    () => (isUser ? parseContentAttachments(message.content || '') : { images: [] as string[], files: [] as string[], text: fallback }),
+    [isUser, message.content, fallback]
+  );
+  // Hermes 处理图片时把用户消息替换成 "[The user attached an image...]" 长描述 → 隐藏
+  const isImgDump = isUser && /\[The user attached an image/i.test(message.content || '');
+  const displayText = isImgDump ? '' : text;
+
   return (
     <View style={[styles.row, isUser ? styles.rowUser : styles.rowAssistant]}>
       {!isUser && (
@@ -97,6 +150,35 @@ export function MessageBubble({
           isUser ? null : shadow.card,
         ]}
       >
+        {/* 历史图片缩略图（点击全屏） */}
+        {histImageIds.map(
+          (fid) =>
+            histImages[fid] ? (
+              <Pressable key={fid} onPress={() => onImagePress?.(histImages[fid])} accessibilityLabel="图片">
+                <Image source={{ uri: histImages[fid] }} style={styles.attThumb} />
+              </Pressable>
+            ) : null
+        )}
+        {/* 历史文件芯片（点击打开/分享） */}
+        {histFiles.map((fid) => {
+          const clean = fid.replace(/^\d+_/, '') || '附件';
+          return (
+            <Pressable key={fid} style={styles.attFile} onPress={() => onOpenHistoryFile?.(fid, clean)} accessibilityLabel={clean}>
+              <Ionicons name="document-outline" size={14} color={colors.card} />
+              <Text style={styles.attFileText} numberOfLines={1}>
+                {clean}
+              </Text>
+            </Pressable>
+          );
+        })}
+        {/* 历史图片消息无缩略图（dump 或旧标记丢失）→ 占位 */}
+        {isUser && histImageIds.length === 0 && isImgDump ? (
+          <View style={styles.attFile}>
+            <Ionicons name="image-outline" size={14} color={colors.card} />
+            <Text style={styles.attFileText}>🖼 图片</Text>
+          </View>
+        ) : null}
+        {/* 乐观附件（刚发送/本机已有） */}
         {isUser && message.attachments?.length ? (
           <View style={styles.attRows}>
             {message.attachments.map((a, i) => (
@@ -116,9 +198,11 @@ export function MessageBubble({
           </View>
         ) : null}
         {isUser ? (
-          <Text selectable style={styles.userText}>
-            {message.content}
-          </Text>
+          displayText ? (
+            <Text selectable style={styles.userText}>
+              {displayText}
+            </Text>
+          ) : null
         ) : fallback.length > 0 ? (
           plain ? (
             <Text selectable style={styles.assistantPlainText}>

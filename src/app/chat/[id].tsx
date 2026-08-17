@@ -1,6 +1,7 @@
 // src/app/chat/[id].tsx —— 对话页（流式 + 模型切换 + 语音 + 80% 历史面板，明暗自适应）
 import { Ionicons } from '@expo/vector-icons';
 import * as Sharing from 'expo-sharing';
+import { Directory, File, Paths } from 'expo-file-system';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -25,6 +26,7 @@ import { MessageBubble } from '../../components/message-bubble';
 import { ModelPicker } from '../../components/model-picker';
 import {
   api,
+  resolveActiveBaseUrl,
   type Attachment,
   type Message,
   type Model,
@@ -272,6 +274,12 @@ export default function ChatScreen() {
       if (!config || streamingRef.current) return;
       const ph = sessionIdRef.current || `app-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       activeReqRef.current = ph;
+      // 无文字时按附件类型补默认提示（与 bridge 一致，乐观气泡也能看到）
+      const hasImage = pendingAtts.some((a) => a.kind === 'image');
+      const hasFile = pendingAtts.some((a) => a.kind === 'file');
+      const content =
+        text ||
+        (hasImage && hasFile ? '请读取并分析这些附件' : hasFile ? '请读取这个文件并处理' : hasImage ? '照片里是什么' : '');
       // 先上传附件（逐个），任一失败则中止发送
       const uploaded: { kind: 'image' | 'file'; fileId: string }[] = [];
       for (const a of pendingAtts) {
@@ -287,12 +295,12 @@ export default function ChatScreen() {
       }
       setMessages((prev) => [
         ...prev,
-        { id: null, role: 'user', content: text, createdAt: null, attachments: pendingAtts },
+        { id: null, role: 'user', content, createdAt: null, attachments: pendingAtts },
         { id: null, role: 'assistant', content: '', createdAt: null },
       ]);
       setStreaming(true);
       const ok = connection.send({
-        content: text,
+        content,
         model: currentModel ?? undefined,
         sessionId: ph,
         attachments: uploaded,
@@ -331,6 +339,24 @@ export default function ChatScreen() {
       Alert.alert('文件', '附件暂不可用');
     },
     [openImageViewer]
+  );
+
+  // 历史文件：带 token 下载到缓存后系统分享/打开
+  const openHistoryFile = useCallback(
+    async (fileId: string, name: string) => {
+      if (!config) return;
+      try {
+        const baseUrl = await resolveActiveBaseUrl(config);
+        const dest = new File(Paths.cache, `dl_${Date.now()}_${name}`);
+        const f = await File.downloadFileAsync(`${baseUrl}/api/uploads/${encodeURIComponent(fileId)}`, dest, {
+          headers: { Authorization: `Bearer ${config.token}` },
+        });
+        await Sharing.shareAsync(f.uri);
+      } catch {
+        Alert.alert('文件', '附件下载失败，可能已过期');
+      }
+    },
+    [config]
   );
 
   const shortModel = (s: string | null) => {
@@ -436,6 +462,8 @@ export default function ChatScreen() {
                 isStreaming={streaming && item.role === 'assistant' && item.content === ''}
                 onImagePress={openImageViewer}
                 onAttachmentPress={openAttachment}
+                onFetchUpload={(fileId) => (config ? api.uploadDataUrl(config, fileId) : Promise.reject(new Error('no config')))}
+                onOpenHistoryFile={openHistoryFile}
               />
             )}
           />

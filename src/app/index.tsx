@@ -53,6 +53,7 @@ export default function ConversationsScreen() {
   const [refreshTick, setRefreshTick] = useState(0);
   const [kavEpoch, setKavEpoch] = useState(0); // 回前台时强制 KeyboardAvoidingView 重新计算布局
   const [updatedIds, setUpdatedIds] = useState<Set<string>>(() => unread.snapshot()); // 会话栏"有更新"标记
+  const [connStatus, setConnStatus] = useState<string>('closed'); // 顶栏连接状态指示灯
   const listRef = useRef<ConversationListHandle>(null);
   // 布局原则：定时任务默认固定搜索栏上方；仅当「最近会话」收起时任务面板上升占满空区
   const taskRisen = taskOpen && !chatOpen;
@@ -70,6 +71,23 @@ export default function ConversationsScreen() {
       }
     });
     return () => sub.remove();
+  }, []);
+
+  // 连接状态指示灯：订阅变化 + 前台每 20s 刷新 + 回前台立即刷一次
+  useEffect(() => {
+    const unsub = connection.subscribe(setConnStatus);
+    const refresh = () => {
+      if (AppState.currentState === 'active') setConnStatus(connection.getStatus());
+    };
+    const id = setInterval(refresh, 20000);
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active') refresh();
+    });
+    return () => {
+      unsub();
+      clearInterval(id);
+      sub.remove();
+    };
   }, []);
 
   // 回到前台：读配置（缺则跳连接页）并静默刷新列表（命中 bridge 缓存则瞬时）
@@ -136,6 +154,17 @@ export default function ConversationsScreen() {
                 accessibilityLabel="新对话"
               >
                 <Ionicons name="add-circle-outline" size={25} color={colors.accent} />
+              </Pressable>
+              <Pressable
+                hitSlop={8}
+                style={({ pressed }) => [pressed && { opacity: 0.6 }, styles.headerGap]}
+                accessibilityLabel={connStatus === 'open' ? '已连接' : '未连接'}
+              >
+                <Ionicons
+                  name="link-outline"
+                  size={22}
+                  color={connStatus === 'open' ? colors.accent : colors.textSecondary}
+                />
               </Pressable>
               <Pressable
                 onPress={() => router.push('/settings')}
