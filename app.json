@@ -2,7 +2,7 @@
   "expo": {
     "name": "KAKU Hermes",
     "slug": "kaku-hermes",
-    "version": "1.0.13",
+    "version": "1.0.14",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "hermesdl",
@@ -57,7 +57,6 @@
     },
     "plugins": [
       "expo-router",
-      "expo-speech-recognition",
       [
         "expo-share-intent",
         {
@@ -79,7 +78,8 @@
           "imageWidth": 76
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true,

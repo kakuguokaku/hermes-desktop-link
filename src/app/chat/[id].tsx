@@ -319,8 +319,7 @@ export default function ChatScreen() {
   );
 
   const selectModel = useCallback((m: Model) => {
-    setCurrentModel(m.id);
-    setPickerVisible(false);
+    setCurrentModel(m.id);    setPickerVisible(false);
     savePrefs({ defaultModel: m.id });
   }, []);
 
@@ -357,6 +356,43 @@ export default function ChatScreen() {
       }
     },
     [config]
+  );
+
+  // 语音直传：按住录音松开发送的语音文件，直接上传并发送（默认提示"请读取这个文件并处理"）
+  const sendVoice = useCallback(
+    async (uri: string, name: string) => {
+      if (!config || streamingRef.current) return;
+      const ph = sessionIdRef.current || `app-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      activeReqRef.current = ph;
+      const att: Attachment = { kind: 'file', name, uri };
+      try {
+        const u = await api.upload(config, uri, name, 'file');
+        setMessages((prev) => [
+          ...prev,
+          { id: null, role: 'user', content: '请读取这个文件并处理', createdAt: null, attachments: [att] },
+          { id: null, role: 'assistant', content: '', createdAt: null },
+        ]);
+        setStreaming(true);
+        const ok = connection.send({
+          content: '请读取这个文件并处理',
+          model: currentModel ?? undefined,
+          sessionId: ph,
+          attachments: [{ kind: 'file', fileId: u.fileId }],
+        });
+        if (!ok) {
+          activeReqRef.current = null;
+          setStreaming(false);
+          setMessages((prev) => [
+            ...prev,
+            { id: null, role: 'assistant', content: '⚠️ 连接已断开，请稍后重试', createdAt: null },
+          ]);
+        }
+      } catch {
+        activeReqRef.current = null;
+        Alert.alert('语音上传失败', name);
+      }
+    },
+    [config, currentModel]
   );
 
   const shortModel = (s: string | null) => {
@@ -477,6 +513,7 @@ export default function ChatScreen() {
               online={online}
               attachments={pendingAtts}
               onAttachmentsChange={setPendingAtts}
+              onSendVoice={sendVoice}
               onPreviewAttachment={(a) => {
                 if (a.kind === 'image' && a.uri) openImageViewer(a.uri);
               }}

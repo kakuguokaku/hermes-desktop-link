@@ -14,14 +14,12 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import * as Speech from 'expo-speech-recognition';
+import { RecordingPresets, requestRecordingPermissionsAsync, useAudioRecorder } from 'expo-audio';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import type { Attachment } from '../lib/api';
 import { radius, shadow, type Colors, type FontTokens } from '../lib/theme';
 import { useFont, useTheme } from '../lib/theme-context';
-
-const SpeechModule = Speech.ExpoSpeechRecognitionModule;
 
 const createStyles = (colors: Colors, font: FontTokens) =>
   StyleSheet.create({
@@ -157,6 +155,7 @@ export function InputBar({
   attachments,
   onAttachmentsChange,
   onPreviewAttachment,
+  onSendVoice,
 }: {
   onSend: (text: string) => void;
   disabled?: boolean;
@@ -164,13 +163,15 @@ export function InputBar({
   attachments?: Attachment[];
   onAttachmentsChange?: (a: Attachment[]) => void;
   onPreviewAttachment?: (a: Attachment) => void;
+  /** 语音直传：录完一段语音立即发送（按住录音/松开发送/上滑取消） */
+  onSendVoice?: (uri: string, name: string) => void;
 }) {
   const colors = useTheme();
   const font = useFont();
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(colors, font), [colors, font]);
   const [text, setText] = useState('');
-  const [listening, setListening] = useState(false);
+  const [recording, setRecording] = useState(false);
   const [voiceHint, setVoiceHint] = useState<string | null>(null);
   const [localAtts, setLocalAtts] = useState<Attachment[]>(attachments ?? []);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -185,17 +186,54 @@ export function InputBar({
     hintTimer.current = setTimeout(() => setVoiceHint(null), 2500);
   }, []);
 
-  // 识别结果写入输入框
-  Speech.useSpeechRecognitionEvent('result', (ev) => {
-    const t = ev?.results?.[0]?.transcript;
-    if (t) setText(t);
-  });
-  // 识别结束/出错复位
-  Speech.useSpeechRecognitionEvent('end', () => setListening(false));
-  Speech.useSpeechRecognitionEvent('error', (ev) => {
-    setListening(false);
-    showHint(`语音不可用：${ev?.message || ev?.error || '识别失败'}`);
-  });
+  // 语音直传：按住录音、松开发送、上滑取消（Hermes 侧 faster-whisper 转写理解）
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const pressY = useRef(0);
+  const cancelledRef = useRef(false);
+  const [cancelling, setCancelling] = useState(false);
+  const onSendVoiceRef = useRef(onSendVoice);
+  onSendVoiceRef.current = onSendVoice;
+
+  const startVoice = useCallback(async () => {
+    const perm = await requestRecordingPermissionsAsync();
+    if (!perm.granted) {
+      showHint('需要麦克风权限');
+      return;
+    }
+    try {
+      await recorder.prepareToRecordAsync();
+      recorder.record();
+      setRecording(true);
+      cancelledRef.current = false;
+      setCancelling(false);
+      setVoiceHint('松开发送 · 上滑取消');
+    } catch (e: any) {
+      setRecording(false);
+      showHint(`录音启动失败：${String(e?.message || e)}`);
+    }
+  }, [recorder, showHint]);
+
+  const endVoice = useCallback(async () => {
+    if (!recording) return;
+    setRecording(false);
+    const cancel = cancelledRef.current || cancelling;
+    setCancelling(false);
+    setVoiceHint(null);
+    try {
+      await recorder.stop();
+    } catch {}
+    if (cancel) {
+      showHint('已取消');
+      return;
+    }
+    const uri = recorder.uri;
+    if (uri) {
+      const name = `语音_${Date.now()}.m4a`;
+      onSendVoiceRef.current?.(uri, name);
+    } else {
+      showHint('没有录到声音');
+    }
+  }, [recording, cancelling, recorder, showHint]);
 
   const pickCamera = useCallback(async () => {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
@@ -258,38 +296,14 @@ export function InputBar({
 
   const canSend = text.trim().length > 0 || localAtts.length > 0;
 
-  const toggleMic = useCallback(async () => {
-    try {
-      if (listening) {
-        SpeechModule.stop();
-        setListening(false);
-        return;
-      }
-      if (!SpeechModule.isRecognitionAvailable()) {
-        showHint('当前环境暂不支持语音输入');
-        return;
-      }
-      const perm = await SpeechModule.requestPermissionsAsync();
-      if (!perm.granted) {
-        showHint('需要麦克风权限');
-        return;
-      }
-      setListening(true);
-      SpeechModule.start({ lang: 'zh-CN', interimResults: true, continuous: false });
-    } catch (e: any) {
-      setListening(false);
-      showHint(`语音不可用：${String(e?.message || e)}`);
-    }
-  }, [listening, showHint]);
-
   useEffect(() => {
     return () => {
       if (hintTimer.current) clearTimeout(hintTimer.current);
       try {
-        SpeechModule.stop();
+        recorder.stop();
       } catch {}
     };
-  }, []);
+  }, [recorder]);
 
   return (
     <View style={styles.wrap}>
@@ -323,17 +337,40 @@ export function InputBar({
         >
           <Ionicons name="add" size={24} color={menuOpen ? colors.card : colors.accent} />
         </Pressable>
-        <TouchableOpacity
-          onPress={toggleMic}
-          style={[styles.iconBtn, listening && styles.micActive]}
-          accessibilityLabel="语音输入"
+        <View
+          style={[styles.iconBtn, recording && styles.micActive]}
+          accessibilityLabel="按住录音"
+          onStartShouldSetResponder={() => true}
+          onMoveShouldSetResponder={() => true}
+          onResponderGrant={(e) => {
+            pressY.current = e.nativeEvent.pageY;
+            cancelledRef.current = false;
+            startVoice();
+          }}
+          onResponderMove={(e) => {
+            const dy = pressY.current - e.nativeEvent.pageY;
+            const now = dy > 60;
+            if (now !== cancelling) {
+              setCancelling(now);
+              if (now) setVoiceHint('松开取消');
+            }
+          }}
+          onResponderRelease={(e) => {
+            const dy = pressY.current - e.nativeEvent.pageY;
+            cancelledRef.current = dy > 60 || cancelling;
+            endVoice();
+          }}
+          onResponderTerminate={() => {
+            cancelledRef.current = true;
+            endVoice();
+          }}
         >
           <Ionicons
-            name={listening ? 'mic' : 'mic-outline'}
+            name={recording ? 'mic' : 'mic-outline'}
             size={22}
-            color={listening ? colors.card : colors.textSecondary}
+            color={recording ? colors.card : colors.textSecondary}
           />
-        </TouchableOpacity>
+        </View>
         <TextInput
           style={styles.input}
           value={text}
