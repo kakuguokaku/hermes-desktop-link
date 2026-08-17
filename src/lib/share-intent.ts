@@ -62,25 +62,65 @@ function mimeFromName(name: string): string {
   return MIME_BY_EXT[ext] ?? 'application/octet-stream';
 }
 
-/** 扫描 Documents/Inbox（系统「拷贝到 KAKU Hermes」落文件处），取最新文件并移到缓存避免重复触发 */
-async function takeInboxFile(): Promise<IncomingShare | null> {
+/** 取一个 Inbox 目录里最新文件（目录不存在/无文件 → null） */
+function newestFileInDir(dir: Directory): File | null {
   try {
-    const inbox = new Directory(Paths.document, 'Inbox');
-    if (!inbox.exists) return null;
-    const files = inbox.list().filter((e): e is File => e instanceof File);
+    if (!dir.exists) return null;
+    const files = dir.list().filter((e): e is File => e instanceof File);
     if (files.length === 0) return null;
     files.sort((a, b) => (b.modificationTime ?? 0) - (a.modificationTime ?? 0));
-    const newest = files[0];
-    let path = newest.uri;
-    try {
-      const dest = new File(Paths.cache, `inbox_${Date.now()}_${newest.name}`);
-      newest.move(dest);
-      path = dest.uri;
-    } catch {}
-    return { files: [{ path, fileName: newest.name, mimeType: mimeFromName(newest.name) }] };
+    return files[0];
   } catch {
     return null;
   }
+}
+
+/** iOS app 容器根目录 file:///.../Data/Application/<UUID>/（由 Documents 上溯一级得到） */
+function appContainerRoot(): Directory | null {
+  try {
+    const doc = Paths.document.uri; // file:///.../Documents
+    const i = doc.lastIndexOf('/Documents');
+    if (i < 0) return null;
+    return new Directory(doc.slice(0, i));
+  } catch {
+    return null;
+  }
+}
+
+/** 扫 tmp 下的所有 <xxx>-Inbox（系统「打开方式」把文件落这里），返回最新文件 */
+function takeTmpInboxFile(): File | null {
+  try {
+    const root = appContainerRoot();
+    if (!root) return null;
+    const tmp = new Directory(root.uri, 'tmp');
+    if (!tmp.exists) return null;
+    let newest: File | null = null;
+    for (const e of tmp.list()) {
+      if (!(e instanceof Directory) || !e.name.endsWith('-Inbox')) continue;
+      const f = newestFileInDir(e);
+      if (f && (!newest || (f.modificationTime ?? 0) > (newest.modificationTime ?? 0))) newest = f;
+    }
+    return newest;
+  } catch {
+    return null;
+  }
+}
+
+/** 扫描 Inbox（系统「拷贝到/打开方式 KAKU Hermes」落文件处，含 Documents/Inbox 与 tmp/*-Inbox），取最新文件并移到缓存避免重复触发 */
+async function takeInboxFile(): Promise<IncomingShare | null> {
+  const docs = newestFileInDir(new Directory(Paths.document, 'Inbox'));
+  const tmp = takeTmpInboxFile();
+  const newest = [docs, tmp]
+    .filter((f): f is File => !!f)
+    .sort((a, b) => (b.modificationTime ?? 0) - (a.modificationTime ?? 0))[0];
+  if (!newest) return null;
+  let path = newest.uri;
+  try {
+    const dest = new File(Paths.cache, `inbox_${Date.now()}_${newest.name}`);
+    newest.move(dest);
+    path = dest.uri;
+  } catch {}
+  return { files: [{ path, fileName: newest.name, mimeType: mimeFromName(newest.name) }] };
 }
 
 /** 根布局调用：把 expo-share-intent 结果 + Inbox 兜底同步到单例 */
