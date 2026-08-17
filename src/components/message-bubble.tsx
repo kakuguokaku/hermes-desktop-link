@@ -1,6 +1,6 @@
 // src/components/message-bubble.tsx —— 消息气泡（明暗自适应）
 // v1.0.13：支持历史消息附件渲染（@image/@file 标记 → 缩略图/文件芯片）+ 隐藏 Hermes 图片长描述
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { Attachment, Message } from '../lib/api';
@@ -109,15 +109,17 @@ export function MessageBubble({
   const fallback = message.content || '';
   const plain = !hasMarkdown(fallback);
 
-  // 历史图片缩略图：异步拉取 data URL
+  // 历史图片缩略图：异步拉取 data URL（用 ref 持有 onFetchUpload，effect 只依赖内容，杜绝无限循环）
+  const fetchUploadRef = useRef(onFetchUpload);
+  fetchUploadRef.current = onFetchUpload;
   const [histImages, setHistImages] = useState<Record<string, string>>({});
   useEffect(() => {
     if (!isUser) return;
     const { images } = parseContentAttachments(message.content || '');
-    if (!images.length || !onFetchUpload) return;
+    if (!images.length || !fetchUploadRef.current) return;
     let alive = true;
     images.forEach((fid) => {
-      onFetchUpload(fid)
+      fetchUploadRef.current!(fid)
         .then((u) => {
           if (alive) setHistImages((prev) => ({ ...prev, [fid]: u }));
         })
@@ -126,7 +128,7 @@ export function MessageBubble({
     return () => {
       alive = false;
     };
-  }, [message.content, isUser, onFetchUpload]);
+  }, [message.content, isUser]);
 
   const { images: histImageIds, files: histFiles, text } = useMemo(
     () => (isUser ? parseContentAttachments(message.content || '') : { images: [] as string[], files: [] as string[], text: fallback }),

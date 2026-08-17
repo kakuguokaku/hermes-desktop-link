@@ -102,6 +102,7 @@ export default function ConversationsScreen() {
         }
         if (alive) {
           setConfig(cfg);
+          setConnStatus(connection.getStatus()); // 回首页立即刷新连接指示灯
           setRefreshTick((t) => t + 1);
         }
       })();

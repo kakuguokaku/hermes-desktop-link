@@ -95,12 +95,24 @@ export function useShareIntentBridge() {
 
   // 「拷贝到 KAKU Hermes」兜底：扫 Inbox（免 App Group），冷启动 + 每次回前台
   useEffect(() => {
-    const check = () => takeInboxFile().then((s) => s && setIncomingShare(s));
+    let alive = true;
+    const check = () =>
+      takeInboxFile().then((s) => {
+        if (alive && s) setIncomingShare(s);
+      });
     check();
+    // 文件可能稍晚写入 Inbox：1s/3s 后再查一次，确保捕获
+    const t1 = setTimeout(() => alive && check(), 1000);
+    const t2 = setTimeout(() => alive && check(), 3000);
     const sub = AppState.addEventListener('change', (state) => {
       if (state === 'active') check();
     });
-    return () => sub.remove();
+    return () => {
+      alive = false;
+      clearTimeout(t1);
+      clearTimeout(t2);
+      sub.remove();
+    };
   }, []);
 
   return { resetShareIntent };

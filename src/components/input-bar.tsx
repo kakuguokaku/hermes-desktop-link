@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { RecordingPresets, requestRecordingPermissionsAsync, useAudioRecorder } from 'expo-audio';
+import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder } from 'expo-audio';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import type { Attachment } from '../lib/api';
@@ -201,6 +201,8 @@ export function InputBar({
       return;
     }
     try {
+      // iOS 录音必须先把音频会话切到"允许录音"模式，否则 prepareToRecordAsync 报错
+      await setAudioModeAsync({ allowsRecording: true });
       await recorder.prepareToRecordAsync();
       recorder.record();
       setRecording(true);

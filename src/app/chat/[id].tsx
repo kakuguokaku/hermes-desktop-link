@@ -318,6 +318,12 @@ export default function ChatScreen() {
     [config, currentModel, pendingAtts]
   );
 
+  // 历史附件拉取（用 useCallback 保持稳定引用，避免 MessageBubble 的 useEffect 每次渲染重跑 → 无限循环闪退）
+  const fetchUpload = useCallback(
+    (fileId: string) => (config ? api.uploadDataUrl(config, fileId) : Promise.reject(new Error('no config'))),
+    [config]
+  );
+
   const selectModel = useCallback((m: Model) => {
     setCurrentModel(m.id);    setPickerVisible(false);
     savePrefs({ defaultModel: m.id });
@@ -498,7 +504,7 @@ export default function ChatScreen() {
                 isStreaming={streaming && item.role === 'assistant' && item.content === ''}
                 onImagePress={openImageViewer}
                 onAttachmentPress={openAttachment}
-                onFetchUpload={(fileId) => (config ? api.uploadDataUrl(config, fileId) : Promise.reject(new Error('no config')))}
+                onFetchUpload={fetchUpload}
                 onOpenHistoryFile={openHistoryFile}
               />
             )}
