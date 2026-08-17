@@ -14,7 +14,6 @@ import {
   View,
 } from 'react-native';
 import { ConversationList, type ConversationListHandle } from '../components/conversation-list';
-import { TaskPanel } from '../components/task-panel';
 import { connection } from '../lib/connection';
 import { getConfig, type ConnConfig } from '../lib/storage';
 import { unread } from '../lib/unread';
@@ -48,15 +47,12 @@ export default function ConversationsScreen() {
   const router = useRouter();
   const [config, setConfig] = useState<ConnConfig | null>(null);
   const [chatOpen, setChatOpen] = useState(true); // 最近会话：默认展开
-  const [taskOpen, setTaskOpen] = useState(false); // 定时任务：默认收起，独立开关
   const [query, setQuery] = useState('');
   const [refreshTick, setRefreshTick] = useState(0);
   const [kavEpoch, setKavEpoch] = useState(0); // 回前台时强制 KeyboardAvoidingView 重新计算布局
   const [updatedIds, setUpdatedIds] = useState<Set<string>>(() => unread.snapshot()); // 会话栏"有更新"标记
   const [connStatus, setConnStatus] = useState<string>('closed'); // 顶栏连接状态指示灯
   const listRef = useRef<ConversationListHandle>(null);
-  // 布局原则：定时任务默认固定搜索栏上方；仅当「最近会话」收起时任务面板上升占满空区
-  const taskRisen = taskOpen && !chatOpen;
 
   // 搜索栏开着键盘切后台再回来：iOS 会收起键盘但 KAV 残留高度 → 白屏。后台 dismiss + 回前台强制重算。
   const appStateRef = useRef(AppState.currentState);
@@ -102,6 +98,7 @@ export default function ConversationsScreen() {
         }
         if (alive) {
           setConfig(cfg);
+          connection.ensureStarted(cfg); // 首页也启动 WS 连接，指示灯才能显示已连接
           setConnStatus(connection.getStatus()); // 回首页立即刷新连接指示灯
           setRefreshTick((t) => t + 1);
         }
@@ -129,7 +126,7 @@ export default function ConversationsScreen() {
     <View style={styles.root}>
       <Stack.Screen
         options={{
-          title: taskOpen ? '任务' : '会话',
+          title: '会话',
           headerRight: () => (
             <View style={styles.headerBtns}>
               <Pressable
@@ -180,7 +177,11 @@ export default function ConversationsScreen() {
         }}
       />
       {config ? (
-        <View style={styles.flex}>
+        <KeyboardAvoidingView
+          style={styles.flex}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 92 + (kavEpoch % 2) : 0}
+        >
           <ConversationList
             ref={listRef}
             config={config}
@@ -191,46 +192,33 @@ export default function ConversationsScreen() {
             query={query}
             reloadTick={refreshTick}
             updatedIds={updatedIds}
-            onUserScroll={taskOpen ? () => setTaskOpen(false) : undefined}
             onSelect={(id) => {
               unread.clear(id);
               unread.setCurrent(id);
               router.push({ pathname: '/chat/[id]', params: { id } });
             }}
           />
-          {/* 定时任务面板 + 搜索栏：键盘弹起时整体升到键盘上方；最近会话收起时面板上升占满 */}
-          <KeyboardAvoidingView
-            style={taskRisen ? styles.flex : undefined}
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 88 + (kavEpoch % 2) : 0}
-          >
-            <TaskPanel
-              config={config}
-              expanded={taskOpen}
-              fill={taskRisen}
-              onToggle={() => setTaskOpen((o) => !o)}
-            />
-            <View style={styles.searchWrap}>
-              <View style={styles.searchBar}>
-                <Ionicons name="search" size={15} color={colors.textMuted} />
-                <TextInput
-                  style={styles.searchInput}
-                  value={query}
-                  onChangeText={setQuery}
-                  placeholder="搜索会话标题"
-                  placeholderTextColor={colors.textMuted}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-                {query.length > 0 ? (
-                  <Pressable onPress={() => setQuery('')} hitSlop={8} accessibilityLabel="清空搜索">
-                    <Ionicons name="close-circle" size={15} color={colors.textMuted} />
-                  </Pressable>
-                ) : null}
-              </View>
+          {/* 搜索栏：和列表同在一个 KAV，键盘弹起时整体上移，搜索栏不被键盘盖住 */}
+          <View style={styles.searchWrap}>
+            <View style={styles.searchBar}>
+              <Ionicons name="search" size={15} color={colors.textMuted} />
+              <TextInput
+                style={styles.searchInput}
+                value={query}
+                onChangeText={setQuery}
+                placeholder="搜索会话标题"
+                placeholderTextColor={colors.textMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {query.length > 0 ? (
+                <Pressable onPress={() => setQuery('')} hitSlop={8} accessibilityLabel="清空搜索">
+                  <Ionicons name="close-circle" size={15} color={colors.textMuted} />
+                </Pressable>
+              ) : null}
             </View>
-          </KeyboardAvoidingView>
-        </View>
+          </View>
+        </KeyboardAvoidingView>
       ) : null}
     </View>
   );

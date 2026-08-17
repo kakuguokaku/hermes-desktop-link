@@ -44,8 +44,13 @@ export function ImageViewer({
           return;
         }
       }
-      const file = await File.downloadFileAsync(uri, new Directory(Paths.cache), { idempotent: true });
-      await MediaLibrary.Asset.create(file.uri);
+      let localUri = uri;
+      if (uri.startsWith('http') || uri.startsWith('data:')) {
+        // 远程/内联图先下载到缓存；本地 file:// 直接存相册
+        const f = await File.downloadFileAsync(uri, new Directory(Paths.cache), { idempotent: true });
+        localUri = f.uri;
+      }
+      await MediaLibrary.Asset.create(localUri);
       Alert.alert('已保存到相册');
     } catch {
       Alert.alert('保存失败', '请检查网络后重试');

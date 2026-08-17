@@ -29,9 +29,9 @@ function parseContentAttachments(content: string) {
 
 const createStyles = (colors: Colors, font: FontTokens) =>
   StyleSheet.create({
-    row: { flexDirection: 'row', marginBottom: 12, alignItems: 'flex-end' },
-    rowUser: { justifyContent: 'flex-end' },
-    rowAssistant: { justifyContent: 'flex-start' },
+    row: { flexDirection: 'row', marginBottom: 12 },
+    rowUser: { justifyContent: 'flex-end', alignItems: 'flex-end' },
+    rowAssistant: { justifyContent: 'flex-start', alignItems: 'flex-start' },
     avatar: {
       width: 26,
       height: 26,

@@ -1,6 +1,7 @@
 // src/lib/api.ts —— 桥接服务客户端（REST + WebSocket 流式）
 // 注意：SDK57 expo-file-system 根导出的 readAsStringAsync 是抛错 shim，须走 /legacy 真实实现
 import * as FileSystem from 'expo-file-system/legacy';
+import { File, Paths } from 'expo-file-system';
 import type { ConnConfig } from './storage';
 
 export type Model = { id: string; name: string; provider: string };
@@ -108,20 +109,15 @@ export const api = {
     if (!res.ok) throw new Error(`upload failed: ${res.status}`);
     return (await res.json()) as Uploaded;
   },
-  // 拉取已上传附件（历史图片/文件）为 base64 data URL（带 token，不在 URL 暴露）
-  uploadDataUrl: async (c: ConnConfig, fileId: string): Promise<string> => {
+  // 拉取已上传附件（历史图片/文件）到缓存文件，返回 file:// 路径（带 token，不在 URL 暴露；
+  // 不用 data URL/FileReader——大图 base64 会导致 RN 崩溃）
+  uploadFileUrl: async (c: ConnConfig, fileId: string): Promise<string> => {
     const baseUrl = await resolveActiveBaseUrl(c);
-    const res = await fetch(`${baseUrl}/api/uploads/${encodeURIComponent(fileId)}`, {
+    const dest = new File(Paths.cache, `hist_${Date.now()}_${fileId.split(/[\\/]/).pop() || 'file'}`);
+    const f = await File.downloadFileAsync(`${baseUrl}/api/uploads/${encodeURIComponent(fileId)}`, dest, {
       headers: { Authorization: `Bearer ${c.token}` },
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const blob = await res.blob();
-    return new Promise((resolve, reject) => {
-      const r = new FileReader();
-      r.onload = () => resolve(String(r.result));
-      r.onerror = () => reject(new Error('read failed'));
-      r.readAsDataURL(blob);
-    });
+    return f.uri;
   },
   removeSession: (c: ConnConfig, id: string) =>
     jfetch<{ ok: boolean }>(c, `/api/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),

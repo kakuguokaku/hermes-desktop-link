@@ -279,7 +279,13 @@ export default function ChatScreen() {
       const hasFile = pendingAtts.some((a) => a.kind === 'file');
       const content =
         text ||
-        (hasImage && hasFile ? '请读取并分析这些附件' : hasFile ? '请读取这个文件并处理' : hasImage ? '照片里是什么' : '');
+        (hasImage && hasFile
+          ? '请读取并分析这些附件'
+          : hasFile
+          ? '请读取这个文件并告诉我这是什么'
+          : hasImage
+          ? '照片里是什么'
+          : '');
       // 先上传附件（逐个），任一失败则中止发送
       const uploaded: { kind: 'image' | 'file'; fileId: string }[] = [];
       for (const a of pendingAtts) {
@@ -318,9 +324,9 @@ export default function ChatScreen() {
     [config, currentModel, pendingAtts]
   );
 
-  // 历史附件拉取（用 useCallback 保持稳定引用，避免 MessageBubble 的 useEffect 每次渲染重跑 → 无限循环闪退）
+  // 历史附件拉取（下载到缓存文件；useCallback 保持稳定引用，避免 MessageBubble useEffect 无限循环闪退）
   const fetchUpload = useCallback(
-    (fileId: string) => (config ? api.uploadDataUrl(config, fileId) : Promise.reject(new Error('no config'))),
+    (fileId: string) => (config ? api.uploadFileUrl(config, fileId) : Promise.reject(new Error('no config'))),
     [config]
   );
 
@@ -375,12 +381,12 @@ export default function ChatScreen() {
         const u = await api.upload(config, uri, name, 'file');
         setMessages((prev) => [
           ...prev,
-          { id: null, role: 'user', content: '请读取这个文件并处理', createdAt: null, attachments: [att] },
+          { id: null, role: 'user', content: '请读取这个文件并告诉我这是什么', createdAt: null, attachments: [att] },
           { id: null, role: 'assistant', content: '', createdAt: null },
         ]);
         setStreaming(true);
         const ok = connection.send({
-          content: '请读取这个文件并处理',
+          content: '请读取这个文件并告诉我这是什么',
           model: currentModel ?? undefined,
           sessionId: ph,
           attachments: [{ kind: 'file', fileId: u.fileId }],
