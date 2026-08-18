@@ -132,9 +132,14 @@ export default function ConnectScreen() {
       setStep(1, 'ok');
       await saveConfig({ baseUrl: url, token: tk, lanBaseUrl: lan || undefined });
       router.replace('/');
-    } catch {
+    } catch (e) {
       setStep(1, 'fail');
-      setError('连接失败：内网与外网均无法连接，请检查地址、口令或桥接服务');
+      // 显示探测失败的准确信息：Network request failed = 网络不通；HTTP 401 = 口令错；
+      // Invalid URL 等 = 地址格式问题。便于直面布署的免签名包快速排障。
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(
+        `连接失败：内网与外网均无法连接\n(${msg})\n\n请检查：\n1) 外网地址以 http:// 开头且含 :8787（bridge 未开 TLS）\n2) 口令是否与桥最近一次启动时打印的 Token 一致\n3) 手机是否能直达 http://www.guoyuncheng.com:8787/api/health`,
+      );
     } finally {
       setBusy(false);
     }
