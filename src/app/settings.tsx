@@ -11,8 +11,10 @@ import {
   Text,
   View,
 } from 'react-native';
-import { api } from '../lib/api';
+import { clearLocalCache, getLocalCacheSize } from '../lib/cache';
+import { formatCacheSize } from '../lib/cache-utils';
 import { connection, type Status } from '../lib/connection';
+import { PHONE_DEFAULT_MODEL } from '../lib/phone-models';
 import { clearConfig, getConfig, type ConnConfig, type FontSize } from '../lib/storage';
 import { radius, shadow, type Colors, type FontTokens } from '../lib/theme';
 import { useDisplayMode, useFont, useFontSize, useTheme } from '../lib/theme-context';
@@ -88,20 +90,17 @@ export default function SettingsScreen() {
   const [config, setConfig] = useState<ConnConfig | null>(null);
   const [connStatus, setConnStatus] = useState<Status>(connection.getStatus());
   const [defaultModel, setDefaultModel] = useState<string | null>(null);
+  const [cacheSize, setCacheSize] = useState(0);
 
   const load = useCallback(async () => {
     const cfg = await getConfig();
     setConfig(cfg);
-    if (cfg) {
-      try {
-        const m = await api.models(cfg);
-        setDefaultModel(m.defaultModel);
-      } catch {}
-    }
+    setDefaultModel(PHONE_DEFAULT_MODEL);
   }, []);
 
   useEffect(() => {
     load();
+    setCacheSize(getLocalCacheSize());
   }, [load]);
 
   // 订阅全局连接状态：subscribe 注册时立即回放当前状态，挂载即拿到真实状态
@@ -126,6 +125,25 @@ export default function SettingsScreen() {
       },
     ]);
   }, [router]);
+
+  const clearCache = useCallback(() => {
+    Alert.alert('清除本机缓存', '将删除已下载的图片、附件和分享临时文件，不影响连接信息、显示设置或对话历史。', [
+      { text: '取消', style: 'cancel' },
+      {
+        text: '清除',
+        style: 'destructive',
+        onPress: () => {
+          try {
+            clearLocalCache();
+            setCacheSize(getLocalCacheSize());
+            Alert.alert('已清除本机缓存');
+          } catch {
+            Alert.alert('清除失败', '请稍后重试。');
+          }
+        },
+      },
+    ]);
+  }, []);
 
   return (
     <ScrollView style={styles.root} contentContainerStyle={styles.content}>
@@ -192,6 +210,21 @@ export default function SettingsScreen() {
         </View>
         <Text style={styles.note}>在对话页右上角可随时切换模型，选择会记住。</Text>
       </View>
+
+      {/* 缓存：卡片高度、信息密度与默认模型保持一致 */}
+      <Text style={styles.section}>缓存</Text>
+      <Pressable style={styles.card} onPress={clearCache} accessibilityLabel="清除本机缓存">
+        <View style={styles.rowBetween}>
+          <View style={styles.lblRow}>
+            <Ionicons name="trash-outline" size={18} color={colors.textSecondary} />
+            <Text style={styles.label}>清除本机缓存</Text>
+          </View>
+          <Text style={styles.value} numberOfLines={1}>
+            {formatCacheSize(cacheSize)}
+          </Text>
+        </View>
+        <Text style={styles.note}>清除已下载的图片、附件和分享临时文件，不影响对话历史。</Text>
+      </Pressable>
 
       {/* 显示：字体大小在上、白天黑夜模式在下 */}
       <Text style={styles.section}>显示</Text>

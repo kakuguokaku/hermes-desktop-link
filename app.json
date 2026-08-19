@@ -1,8 +1,8 @@
 {
   "expo": {
     "name": "KAKU Hermes",
-    "slug": "hermes-desktop-link",
-    "version": "1.0.19",
+    "slug": "kaku-hermes",
+    "version": "1.0.20",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "hermesdl",

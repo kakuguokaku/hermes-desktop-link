@@ -20,6 +20,16 @@ test('withStableMessageKeys 为无 id 历史消息补齐稳定 id', () => {
   assert.equal(a[0].id, b[0].id, '同一内容两次补齐应得到相同 id');
 });
 
+test('withStableMessageKeys 为重复的服务端 id 生成唯一稳定 key', () => {
+  const messages = [
+    { id: 'same-id', role: 'user' as const, content: '第一条', createdAt: '2026-01-01' },
+    { id: 'same-id', role: 'assistant' as const, content: '第二条', createdAt: '2026-01-01' },
+  ];
+  const keyed = withStableMessageKeys(messages);
+  assert.deepEqual(keyed.map((message) => message.id), ['same-id', 'same-id-dup-1']);
+  assert.equal(new Set(keyed.map((message) => message.id)).size, keyed.length);
+});
+
 test('mergeServerWithLocal 服务端已确认的本地消息不重复', () => {
   const prev = [
     { id: 'local-user-r1', role: 'user' as const, content: '你好', createdAt: null },

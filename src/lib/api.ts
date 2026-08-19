@@ -104,15 +104,19 @@ export const api = {
     // 上传前先取真实大小：超限不读 Base64、不发网络请求（避免大文件内存暴涨）
     const info = await FileSystem.getInfoAsync(fileUri);
     assertUploadSize(info.exists ? (info.size ?? 0) : 0, kind);
-    const b64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
     const baseUrl = await resolveActiveBaseUrl(c);
-    const res = await fetch(`${baseUrl}/api/upload`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${c.token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, kind, dataBase64: b64 }),
+    const res = await FileSystem.uploadAsync(`${baseUrl}/api/upload`, fileUri, {
+      httpMethod: 'POST',
+      uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+      headers: {
+        Authorization: `Bearer ${c.token}`,
+        'Content-Type': 'application/octet-stream',
+        'X-Upload-Name': encodeURIComponent(name),
+        'X-Upload-Kind': kind,
+      },
     });
-    if (!res.ok) throw new Error(`upload failed: ${res.status}`);
-    return (await res.json()) as Uploaded;
+    if (res.status < 200 || res.status >= 300) throw new Error(`upload failed: ${res.status}`);
+    return JSON.parse(res.body) as Uploaded;
   },
   // 拉取已上传附件（历史图片/文件）到缓存文件，返回 file:// 路径（带 token，不在 URL 暴露；
   // 不用 data URL/FileReader——大图 base64 会导致 RN 崩溃）

@@ -14,13 +14,20 @@ function hashStr(s: string): string {
 /** 历史消息若无 id，用「角色+创建时间+内容长度+内容前缀」生成稳定本地 id（跨刷新不变，不依赖索引） */
 export function withStableMessageKeys(messages: Message[]): Message[] {
   const counts = new Map<string, number>();
+  const usedIds = new Set<string>();
   return messages.map((m) => {
-    if (m.id) return m;
     const content = m.content || '';
-    const base = m.role + '|' + (m.createdAt ?? '') + '|' + content.length + '|' + content.slice(0, 160);
-    const n = counts.get(base) ?? 0;
+    const fingerprint = m.role + '|' + (m.createdAt ?? '') + '|' + content.length + '|' + content.slice(0, 160);
+    const base = m.id || 'hist-' + hashStr(fingerprint);
+    let n = counts.get(base) ?? 0;
+    let id = n === 0 ? base : `${base}-dup-${n}`;
+    while (usedIds.has(id)) {
+      n += 1;
+      id = `${base}-dup-${n}`;
+    }
     counts.set(base, n + 1);
-    return { ...m, id: n === 0 ? 'hist-' + hashStr(base) : 'hist-' + hashStr(base) + '-' + n };
+    usedIds.add(id);
+    return m.id === id ? m : { ...m, id };
   });
 }
 

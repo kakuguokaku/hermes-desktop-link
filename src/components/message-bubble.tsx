@@ -134,7 +134,8 @@ export function MessageBubble({
   );
   // Hermes 处理图片时把用户消息替换成 "[The user attached an image...]" 长描述 → 隐藏
   const isImgDump = isUser && /\[The user attached an image/i.test(message.content || '');
-  const displayText = isImgDump ? '' : text;
+  const isVoiceCommand = isUser && /请将此段语音转换为文字，并作为给你的命令执行。/.test(message.content || '');
+  const displayText = isVoiceCommand ? '发送了一条语音' : isImgDump ? '' : text;
 
   // 空的 assistant 消息（非流式中）不渲染：避免残留 "（空回复）"/空白气泡（如工具调用产生的空消息）。
   // 注意：所有 Hooks 必须在此提前 return 之前执行完毕，保证每次渲染调用顺序一致（否则 iOS 直接闪退）。
