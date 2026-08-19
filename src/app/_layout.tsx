@@ -16,7 +16,7 @@ function CancelShareButton() {
   const router = useRouter();
   const cancel = useCallback(() => {
     resetIncomingShare();
-    router.back();
+    router.replace('/');
   }, [router]);
   return (
     <Pressable onPress={cancel} hitSlop={8} accessibilityLabel="取消分享">

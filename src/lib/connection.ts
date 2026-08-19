@@ -24,7 +24,7 @@ let stream: StreamHandle | null = null;
 let handlers: StreamHandlers | null = null;
 const listeners = new Set<(s: Status) => void>();
 const sessionUpdatedListeners = new Set<(sid: string) => void>();
-const requestResultListeners = new Set<(result: { reqId: string; type: 'complete' | 'error'; error?: string }) => void>();
+const requestResultListeners = new Set<(result: { reqId: string; type: 'complete' | 'error'; sessionId?: string; error?: string }) => void>();
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let pongTimer: ReturnType<typeof setTimeout> | null = null;
 let pongSeen = false; // 关键防坑：只有收到过 pong 才启用假死检测
@@ -106,7 +106,7 @@ function startStream() {
     onComplete: (sid, reqId) => {
       if (myEpoch !== epoch) return;
       handlers?.onComplete(sid, reqId);
-      if (reqId) requestResultListeners.forEach((cb) => cb({ reqId, type: 'complete' }));
+      if (reqId) requestResultListeners.forEach((cb) => cb({ reqId, type: 'complete', sessionId: sid }));
     },
     onError: (sid, err, reqId) => {
       if (myEpoch !== epoch) return;
@@ -145,7 +145,7 @@ export const connection = {
     sessionUpdatedListeners.add(cb);
     return () => sessionUpdatedListeners.delete(cb);
   },
-  subscribeRequestResult(cb: (result: { reqId: string; type: 'complete' | 'error'; error?: string }) => void): () => void {
+  subscribeRequestResult(cb: (result: { reqId: string; type: 'complete' | 'error'; sessionId?: string; error?: string }) => void): () => void {
     requestResultListeners.add(cb);
     return () => requestResultListeners.delete(cb);
   },

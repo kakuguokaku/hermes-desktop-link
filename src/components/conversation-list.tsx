@@ -130,6 +130,7 @@ export const ConversationList = forwardRef<
   const [refreshing, setRefreshing] = useState(false);
   const [selectMode, setSelectMode] = useState(false);
   const [action, setAction] = useState<'archive' | 'delete' | null>(null);
+  const [processing, setProcessing] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const query = queryProp ?? '';
 
@@ -193,7 +194,8 @@ export const ConversationList = forwardRef<
   }));
 
   const confirmAction = useCallback(async () => {
-    if (!action) return;
+    if (!action || processing) return;
+    setProcessing(true);
     const ids = [...selected];
     for (const id of ids) {
       try {
@@ -205,7 +207,8 @@ export const ConversationList = forwardRef<
     }
     cancelSelect();
     await load();
-  }, [action, selected, config, load, cancelSelect]);
+    setProcessing(false);
+  }, [action, selected, config, load, cancelSelect, processing]);
 
   const showToolbar = Boolean(onClose || selectMode);
 
@@ -224,13 +227,13 @@ export const ConversationList = forwardRef<
 
           {selectMode ? (
             <View style={styles.selectBar}>
-              <Pressable onPress={cancelSelect} hitSlop={8}>
-                <Text style={styles.cancelText}>取消</Text>
+              <Pressable onPress={cancelSelect} hitSlop={8} disabled={processing}>
+                <Text style={styles.cancelText}>{processing ? '处理中…' : '取消'}</Text>
               </Pressable>
               <Text style={styles.selectCount}>已选 {selected.size} 项</Text>
-              <Pressable onPress={confirmAction} hitSlop={8}>
+              <Pressable onPress={confirmAction} hitSlop={8} disabled={processing}>
                 <Text style={[styles.confirmText, action === 'delete' ? styles.confirmDelete : null]}>
-                  确认{action === 'archive' ? '归档' : '删除'}
+                  {processing ? '处理中…' : `确认${action === 'archive' ? '归档' : '删除'}`}
                 </Text>
               </Pressable>
             </View>

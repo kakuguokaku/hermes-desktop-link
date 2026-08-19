@@ -196,7 +196,9 @@ export default function ConversationsScreen() {
             query={query}
             reloadTick={refreshTick}
             updatedIds={updatedIds}
+            onUserScroll={() => setTaskOpen(false)}
             onSelect={(id) => {
+              setTaskOpen(false);
               unread.clear(id);
               unread.setCurrent(id);
               router.push({ pathname: '/chat/[id]', params: { id } });

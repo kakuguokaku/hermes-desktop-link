@@ -34,6 +34,8 @@ import {
   type Uploaded,
 } from '../../lib/api';
 import { contentForSend } from '../../lib/chat-prompt';
+import { shouldHandleStreamEvent, shouldPollSession } from '../../lib/chat-polling';
+import { PHONE_DEFAULT_MODEL, filterPhoneModels, resolvePhoneModel } from '../../lib/phone-models';
 import {
   localAssistantMessageId,
   localUserMessageId,
@@ -152,15 +154,11 @@ export default function ChatScreen() {
       setConfig(cfg);
       connection.ensureStarted(cfg);
       const prefs = await getPrefs();
-      try {
-        const m = await api.models(cfg);
-        if (!alive) return;
-        setModels(m.models);
-        setDefaultModel(m.defaultModel);
-        setCurrentModel(prefs.defaultModel || m.defaultModel);
-      } catch {
-        // 模型列表失败不阻塞聊天
-      }
+      if (!alive) return;
+      // 手机端的模型选择固定为产品规定的五项，不依赖桌面端完整模型目录。
+      setModels(filterPhoneModels([]));
+      setDefaultModel(PHONE_DEFAULT_MODEL);
+      setCurrentModel(resolvePhoneModel(prefs.defaultModel));
       if (!isNew && id) {
         try {
           const d = await api.session(cfg, id);
@@ -219,7 +217,8 @@ export default function ChatScreen() {
     }, [])
   );
   useEffect(() => {
-    if (!focused || !appActive || !online || isNew || !config) return;
+    const pollConfig = config;
+    if (!shouldPollSession({ focused, appActive, online, hasConfig: !!pollConfig, sessionId }) || !pollConfig) return;
     const timer = setInterval(() => {
       if (streamingRef.current) return; // 流式期间不刷新，避免旧快照覆盖正在显示的内容
       if (pollLock.current) return; // 上一轮未结束不再发起
@@ -228,7 +227,7 @@ export default function ChatScreen() {
       if (!sid) return;
       pollLock.current = true;
       api
-        .session(config, sid, true) // fresh=1 绕过 bridge 10s 缓存
+        .session(pollConfig, sid, true) // fresh=1 绕过 bridge 10s 缓存
         .then((d: SessionDetail) => {
           pollFails.current = 0;
           setMessages((prev) => mergeServerWithLocal(d.messages, prev));
@@ -241,7 +240,7 @@ export default function ChatScreen() {
         });
     }, 2000);
     return () => clearInterval(timer);
-  }, [focused, appActive, online, isNew, config]);
+  }, [focused, appActive, online, config, sessionId]);
 
   // 标记"正在查看的会话"：自身更新不点亮未读标记；离开时清除
   useEffect(() => {
@@ -271,8 +270,7 @@ export default function ChatScreen() {
     if (!config) return;
     connection.setStreamHandlers({
       onDelta: (_sid, delta, reqId) => {
-        if (!streamingRef.current) return;
-        if (reqId !== undefined && reqId !== activeReqRef.current) return; // 只处理本请求的流式
+        if (!shouldHandleStreamEvent(streamingRef.current, activeReqRef.current, reqId)) return;
         lastActivityRef.current = Date.now();
         setMessages((prev) => {
           const next = [...prev];
@@ -342,6 +340,7 @@ export default function ChatScreen() {
           }
         }
         activeReqRef.current = ph;
+        streamingRef.current = true;
         setMessages((prev) => [
           ...prev,
           { id: localUserMessageId(ph), role: 'user', content, createdAt: null, attachments: pendingAtts },
@@ -357,6 +356,7 @@ export default function ChatScreen() {
         });
         if (!ok) {
           activeReqRef.current = null;
+          streamingRef.current = false;
           setStreaming(false);
           setMessages((prev) => removeLocalRequestMessages(prev, ph));
           await Promise.all(uploaded.map((a) => api.deleteUpload(config, a.fileId).catch(() => {})));
@@ -418,7 +418,7 @@ export default function ChatScreen() {
     [config]
   );
 
-  // 语音直传：按住录音松开发送的语音文件，直接上传并发送（默认提示"请读取这个文件并处理"）
+  // 语音直传：内部提示 Hermes 转写后把语音内容当命令执行；界面仅显示语音已发送。
   const sendVoice = useCallback(
     async (uri: string, name: string) => {
       if (!config || streamingRef.current || sendingRef.current) return;
@@ -434,22 +434,24 @@ export default function ChatScreen() {
           return;
         }
         activeReqRef.current = ph;
+        streamingRef.current = true;
         const att: Attachment = { kind: 'file', name, uri };
         setMessages((prev) => [
           ...prev,
-          { id: localUserMessageId(ph), role: 'user', content: '请读取这个文件并告诉我这是什么', createdAt: null, attachments: [att] },
+          { id: localUserMessageId(ph), role: 'user', content: '请将此段语音转换为文字，并作为给你的命令执行。', createdAt: null, attachments: [att] },
           { id: localAssistantMessageId(ph), role: 'assistant', content: '', createdAt: null },
         ]);
         setStreaming(true);
         const ok = connection.send({
           reqId: ph,
-          content: '请读取这个文件并告诉我这是什么',
+          content: '请将此段语音转换为文字，并作为给你的命令执行。',
           model: currentModel ?? undefined,
           sessionId: ph,
           attachments: [{ kind: 'file', fileId: up.fileId }],
         });
         if (!ok) {
           activeReqRef.current = null;
+          streamingRef.current = false;
           setStreaming(false);
           setMessages((prev) => removeLocalRequestMessages(prev, ph));
           await api.deleteUpload(config, up.fileId).catch(() => {});

@@ -1,7 +1,7 @@
 // src/app/share.tsx —— 分享扩展：发送到会话（预览 + 选会话 + 可选文字 + 发送）
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -57,6 +57,8 @@ const createStyles = (colors: Colors, font: FontTokens) =>
     pvText: { fontSize: font.body, color: colors.textBody, lineHeight: 20 },
     // 会话列表
     listTitle: { fontSize: font.tiny, fontWeight: '700', letterSpacing: 1, color: colors.textMuted, marginTop: 14, marginBottom: 6, marginLeft: 16 },
+    listHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginRight: 16 },
+    newChat: { color: colors.accent, fontSize: font.caption, fontWeight: '600' },
     // 底部发送
     bottom: { paddingHorizontal: 12, paddingVertical: 10, backgroundColor: colors.bg },
     sendBar: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -93,7 +95,9 @@ export default function ShareScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [sending, setSending] = useState(false);
-  const [pendingReqId, setPendingReqId] = useState<string | null>(null);
+  const pendingReqIdRef = useRef<string | null>(null);
+  const selectedIdRef = useRef<string | null>(null);
+  selectedIdRef.current = selectedId;
 
   useEffect(() => {
     getConfig().then((cfg) => {
@@ -111,17 +115,18 @@ export default function ShareScreen() {
   useEffect(
     () =>
       connection.subscribeRequestResult((result) => {
-        if (!pendingReqId || result.reqId !== pendingReqId) return;
+        if (!pendingReqIdRef.current || result.reqId !== pendingReqIdRef.current) return;
         setSending(false);
-        setPendingReqId(null);
+        pendingReqIdRef.current = null;
         if (result.type === 'error') {
           Alert.alert('发送失败', result.error || '电脑端未能处理该分享');
           return;
         }
         resetIncomingShare();
-        if (selectedId) router.replace({ pathname: '/chat/[id]', params: { id: selectedId } });
+        const destination = result.sessionId || selectedIdRef.current;
+        if (destination) router.replace({ pathname: '/chat/[id]', params: { id: destination } });
       }),
-    [pendingReqId, selectedId, router]
+    [router]
   );
 
   const firstFile = incoming?.files?.[0];
@@ -164,13 +169,15 @@ export default function ShareScreen() {
     }
     const content = buildContent();
     const reqId = 'share-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    // 必须先同步记录：Bridge 可在 send 返回前发回 complete，React state 来不及更新。
+    pendingReqIdRef.current = reqId;
     const ok = connection.send({ reqId, content, sessionId: selectedId, attachments: uploaded });
     if (!ok) {
+      pendingReqIdRef.current = null;
       setSending(false);
       Alert.alert('发送失败', '请检查与电脑的连接');
       return;
     }
-    setPendingReqId(reqId);
   }, [config, selectedId, sending, incoming, buildContent, router]);
 
   if (!incoming || !preview) {
@@ -216,7 +223,12 @@ export default function ShareScreen() {
       </View>
 
       {/* 会话列表 */}
-      <Text style={styles.listTitle}>发送到会话</Text>
+      <View style={styles.listHeader}>
+        <Text style={styles.listTitle}>发送到会话</Text>
+        <Pressable onPress={() => setSelectedId(`app-share-${Date.now()}`)} hitSlop={8} accessibilityLabel="新建会话">
+          <Text style={styles.newChat}>新建会话</Text>
+        </Pressable>
+      </View>
       <View style={styles.flex}>
         {config ? (
           <ConversationList
