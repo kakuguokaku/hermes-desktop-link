@@ -24,6 +24,7 @@ let stream: StreamHandle | null = null;
 let handlers: StreamHandlers | null = null;
 const listeners = new Set<(s: Status) => void>();
 const sessionUpdatedListeners = new Set<(sid: string) => void>();
+const requestResultListeners = new Set<(result: { reqId: string; type: 'complete' | 'error'; error?: string }) => void>();
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let pongTimer: ReturnType<typeof setTimeout> | null = null;
 let pongSeen = false; // 关键防坑：只有收到过 pong 才启用假死检测
@@ -102,8 +103,16 @@ function startStream() {
       }
     },
     onDelta: (sid, delta, reqId) => { if (myEpoch === epoch) handlers?.onDelta(sid, delta, reqId); },
-    onComplete: (sid, reqId) => { if (myEpoch === epoch) handlers?.onComplete(sid, reqId); },
-    onError: (sid, err, reqId) => { if (myEpoch === epoch) handlers?.onError(sid, err, reqId); },
+    onComplete: (sid, reqId) => {
+      if (myEpoch !== epoch) return;
+      handlers?.onComplete(sid, reqId);
+      if (reqId) requestResultListeners.forEach((cb) => cb({ reqId, type: 'complete' }));
+    },
+    onError: (sid, err, reqId) => {
+      if (myEpoch !== epoch) return;
+      handlers?.onError(sid, err, reqId);
+      if (reqId) requestResultListeners.forEach((cb) => cb({ reqId, type: 'error', error: err }));
+    },
     onRawMessage: (msg) => {
       if (myEpoch !== epoch) return;
       if (msg?.type === 'pong') onPong();
@@ -136,6 +145,10 @@ export const connection = {
     sessionUpdatedListeners.add(cb);
     return () => sessionUpdatedListeners.delete(cb);
   },
+  subscribeRequestResult(cb: (result: { reqId: string; type: 'complete' | 'error'; error?: string }) => void): () => void {
+    requestResultListeners.add(cb);
+    return () => requestResultListeners.delete(cb);
+  },
   getStatus(): Status {
     return status;
   },
@@ -150,7 +163,7 @@ export const connection = {
     pongSeen = false;
     setStatus('closed');
   },
-  send(payload: { content: string; model?: string; sessionId?: string; attachments?: { kind: 'image' | 'file'; fileId: string }[] }): boolean {
+  send(payload: { content: string; model?: string; sessionId?: string; reqId?: string; attachments?: { kind: 'image' | 'file'; fileId: string }[] }): boolean {
     if (status !== 'open' || !stream) return false;
     return stream.send(payload);
   },

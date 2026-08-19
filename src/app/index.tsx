@@ -14,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import { ConversationList, type ConversationListHandle } from '../components/conversation-list';
+import { TaskPanel } from '../components/task-panel';
 import { connection } from '../lib/connection';
 import { getConfig, type ConnConfig } from '../lib/storage';
 import { unread } from '../lib/unread';
@@ -47,6 +48,8 @@ export default function ConversationsScreen() {
   const router = useRouter();
   const [config, setConfig] = useState<ConnConfig | null>(null);
   const [chatOpen, setChatOpen] = useState(true); // 最近会话：默认展开
+  const [taskOpen, setTaskOpen] = useState(false); // 定时任务：默认收起
+  const [taskTick, setTaskTick] = useState(0); // 回到首页时自增，触发定时任务刷新一次
   const [query, setQuery] = useState('');
   const [refreshTick, setRefreshTick] = useState(0);
   const [kavEpoch, setKavEpoch] = useState(0); // 回前台时强制 KeyboardAvoidingView 重新计算布局
@@ -101,6 +104,7 @@ export default function ConversationsScreen() {
           connection.ensureStarted(cfg); // 首页也启动 WS 连接，指示灯才能显示已连接
           setConnStatus(connection.getStatus()); // 回首页立即刷新连接指示灯
           setRefreshTick((t) => t + 1);
+          setTaskTick((t) => t + 1);
         }
       })();
       return () => {
@@ -197,6 +201,14 @@ export default function ConversationsScreen() {
               unread.setCurrent(id);
               router.push({ pathname: '/chat/[id]', params: { id } });
             }}
+          />
+          {/* 定时任务：与「最近会话」同级折叠；最近会话收起时面板上升占满空区 */}
+          <TaskPanel
+            config={config}
+            expanded={taskOpen}
+            onToggle={() => setTaskOpen((o) => !o)}
+            fill={!chatOpen}
+            reloadTick={taskTick}
           />
           {/* 搜索栏：和列表同在一个 KAV，键盘弹起时整体上移，搜索栏不被键盘盖住 */}
           <View style={styles.searchWrap}>

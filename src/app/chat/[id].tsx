@@ -2,7 +2,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Sharing from 'expo-sharing';
 import { Directory, File, Paths } from 'expo-file-system';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -31,7 +31,18 @@ import {
   type Message,
   type Model,
   type SessionDetail,
+  type Uploaded,
 } from '../../lib/api';
+import { contentForSend } from '../../lib/chat-prompt';
+import {
+  localAssistantMessageId,
+  localUserMessageId,
+  mergeServerWithLocal,
+  removeLocalRequestMessages,
+  replaceLocalAssistantMessage,
+  withStableMessageKeys,
+} from '../../lib/message-keys';
+import { UploadTooLargeError } from '../../lib/upload-limits';
 import { connection } from '../../lib/connection';
 import type { Status } from '../../lib/connection';
 import { getConfig, getPrefs, savePrefs, type ConnConfig } from '../../lib/storage';
@@ -111,6 +122,12 @@ export default function ChatScreen() {
   });
   const [kavEpoch, setKavEpoch] = useState(0); // 回前台时强制 KeyboardAvoidingView 重新计算布局
   const [pendingAtts, setPendingAtts] = useState<Attachment[]>([]); // 待发附件（发送前显示在输入栏上方）
+  const [sending, setSending] = useState(false); // 附件上传/发送中：禁用重复发送
+  const [focused, setFocused] = useState(true); // 页面聚焦（离开页面停止轮询）
+  const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  const sendingRef = useRef(false);
+  const pollLock = useRef(false); // 轮询互斥：上一轮未结束不发起下一轮
+  const pollFails = useRef(0); // 连续失败静默退避，不弹窗
 
   const listRef = useRef<FlatList<Message>>(null);
   const sessionIdRef = useRef<string | null>(sessionId);
@@ -148,7 +165,7 @@ export default function ChatScreen() {
         try {
           const d = await api.session(cfg, id);
           if (!alive) return;
-          setMessages(d.messages);
+          setMessages(withStableMessageKeys(d.messages));
           setSessionId(d.session.id);
           setLoadError(null);
         } catch {
@@ -163,15 +180,13 @@ export default function ChatScreen() {
     };
   }, [id, isNew, router]);
 
-  const refreshSession = useCallback(
-    (cfg: ConnConfig, realId: string) => {
-      api
-        .session(cfg, realId)
-        .then((d: SessionDetail) => setMessages(d.messages))
-        .catch(() => {});
-    },
-    []
-  );
+  // 刷新会话：合并服务端快照与本地乐观消息，避免覆盖「正在发送/正在输出」的气泡
+  const refreshSession = useCallback((cfg: ConnConfig, realId: string) => {
+    api
+      .session(cfg, realId)
+      .then((d: SessionDetail) => setMessages((prev) => mergeServerWithLocal(d.messages, prev)))
+      .catch(() => {});
+  }, []);
 
   // 连接状态订阅：online 标识 + 重连成功后刷新会话（把断连期间消息拉回）；断连/重连时复位卡死的流式
   const prevConn = useRef<Status | null>(null);
@@ -196,6 +211,38 @@ export default function ChatScreen() {
     });
   }, [config, refreshSession]);
 
+  // P1-2：当前对话聚焦 + App 前台时每 2s 刷新一次（流式输出/上一轮未结束则跳过），离开页面立即停止
+  useFocusEffect(
+    useCallback(() => {
+      setFocused(true);
+      return () => setFocused(false);
+    }, [])
+  );
+  useEffect(() => {
+    if (!focused || !appActive || !online || isNew || !config) return;
+    const timer = setInterval(() => {
+      if (streamingRef.current) return; // 流式期间不刷新，避免旧快照覆盖正在显示的内容
+      if (pollLock.current) return; // 上一轮未结束不再发起
+      if (pollFails.current >= 10) return; // 连续失败静默退避：暂停请求，恢复后自动对齐
+      const sid = sessionIdRef.current;
+      if (!sid) return;
+      pollLock.current = true;
+      api
+        .session(config, sid, true) // fresh=1 绕过 bridge 10s 缓存
+        .then((d: SessionDetail) => {
+          pollFails.current = 0;
+          setMessages((prev) => mergeServerWithLocal(d.messages, prev));
+        })
+        .catch(() => {
+          pollFails.current += 1; // 连续失败静默退避，不弹窗
+        })
+        .finally(() => {
+          pollLock.current = false;
+        });
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [focused, appActive, online, isNew, config]);
+
   // 标记"正在查看的会话"：自身更新不点亮未读标记；离开时清除
   useEffect(() => {
     unread.setCurrent(sessionId);
@@ -209,6 +256,7 @@ export default function ChatScreen() {
     const sub = AppState.addEventListener('change', (s) => {
       const prev = appStateRef.current;
       appStateRef.current = s;
+      setAppActive(s === 'active');
       if (s === 'background') {
         Keyboard.dismiss();
       } else if (s === 'active' && prev === 'background') {
@@ -248,10 +296,11 @@ export default function ChatScreen() {
         if (reqId !== undefined && reqId !== activeReqRef.current) return;
         activeReqRef.current = null;
         setStreaming(false);
-        setMessages((prev) => [
-          ...prev,
-          { id: null, role: 'assistant', content: `⚠️ 出错了：${error}`, createdAt: null },
-        ]);
+        setMessages((prev) =>
+          reqId
+            ? replaceLocalAssistantMessage(prev, reqId, `⚠️ 出错了：${error}`)
+            : [...prev, { id: `local-error-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, role: 'assistant', content: `⚠️ 出错了：${error}`, createdAt: null }]
+        );
       },
     });
     return () => connection.setStreamHandlers(null);
@@ -270,56 +319,55 @@ export default function ChatScreen() {
   }, [streaming, config, refreshSession]);
 
   const send = useCallback(
-    async (text: string) => {
-      if (!config || streamingRef.current) return;
-      const ph = sessionIdRef.current || `app-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      activeReqRef.current = ph;
-      // 无文字时按附件类型补默认提示（与 bridge 一致，乐观气泡也能看到）
-      const hasImage = pendingAtts.some((a) => a.kind === 'image');
-      const hasFile = pendingAtts.some((a) => a.kind === 'file');
-      const content =
-        text ||
-        (hasImage && hasFile
-          ? '请读取并分析这些附件'
-          : hasFile
-          ? '请读取这个文件并告诉我这是什么'
-          : hasImage
-          ? '照片里是什么'
-          : '');
-      // 先上传附件（逐个），任一失败则中止发送
-      const uploaded: { kind: 'image' | 'file'; fileId: string }[] = [];
-      for (const a of pendingAtts) {
-        if (!a.uri) continue;
-        try {
-          const u = await api.upload(config, a.uri, a.name, a.kind);
-          uploaded.push({ kind: u.kind, fileId: u.fileId });
-        } catch {
-          activeReqRef.current = null;
-          Alert.alert('附件上传失败', a.name);
-          return;
+    async (text: string): Promise<boolean> => {
+      if (!config || streamingRef.current || sendingRef.current) return false;
+      sendingRef.current = true;
+      setSending(true);
+      try {
+        const ph = sessionIdRef.current || `app-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        // 无文字时按附件类型补默认提示（与 bridge 一致，乐观气泡也能看到）
+        const hasImage = pendingAtts.some((a) => a.kind === 'image');
+        const hasFile = pendingAtts.some((a) => a.kind === 'file');
+        const content = contentForSend(text, hasImage, hasFile);
+        // 先上传附件（逐个），任一失败则中止发送并保留草稿（文字与附件不丢，可重试）
+        const uploaded: { kind: 'image' | 'file'; fileId: string }[] = [];
+        for (const a of pendingAtts) {
+          if (!a.uri) continue;
+          try {
+            const u = await api.upload(config, a.uri, a.name, a.kind);
+            uploaded.push({ kind: u.kind, fileId: u.fileId });
+          } catch (e: any) {
+            Alert.alert('附件上传失败', e instanceof UploadTooLargeError ? e.message : a.name);
+            return false;
+          }
         }
-      }
-      setMessages((prev) => [
-        ...prev,
-        { id: null, role: 'user', content, createdAt: null, attachments: pendingAtts },
-        { id: null, role: 'assistant', content: '', createdAt: null },
-      ]);
-      setStreaming(true);
-      const ok = connection.send({
-        content,
-        model: currentModel ?? undefined,
-        sessionId: ph,
-        attachments: uploaded,
-      });
-      if (!ok) {
-        activeReqRef.current = null;
-        setStreaming(false);
+        activeReqRef.current = ph;
         setMessages((prev) => [
           ...prev,
-          { id: null, role: 'assistant', content: '⚠️ 连接已断开，请稍后重试', createdAt: null },
+          { id: localUserMessageId(ph), role: 'user', content, createdAt: null, attachments: pendingAtts },
+          { id: localAssistantMessageId(ph), role: 'assistant', content: '', createdAt: null },
         ]);
+        setStreaming(true);
+        const ok = connection.send({
+          reqId: ph,
+          content,
+          model: currentModel ?? undefined,
+          sessionId: ph,
+          attachments: uploaded,
+        });
+        if (!ok) {
+          activeReqRef.current = null;
+          setStreaming(false);
+          setMessages((prev) => removeLocalRequestMessages(prev, ph));
+          await Promise.all(uploaded.map((a) => api.deleteUpload(config, a.fileId).catch(() => {})));
+          return false;
+        }
+        setPendingAtts([]);
+        return true;
+      } finally {
+        sendingRef.current = false;
+        setSending(false);
       }
-      setPendingAtts([]);
     },
     [config, currentModel, pendingAtts]
   );
@@ -373,35 +421,42 @@ export default function ChatScreen() {
   // 语音直传：按住录音松开发送的语音文件，直接上传并发送（默认提示"请读取这个文件并处理"）
   const sendVoice = useCallback(
     async (uri: string, name: string) => {
-      if (!config || streamingRef.current) return;
-      const ph = sessionIdRef.current || `app-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      activeReqRef.current = ph;
-      const att: Attachment = { kind: 'file', name, uri };
+      if (!config || streamingRef.current || sendingRef.current) return;
+      sendingRef.current = true;
+      setSending(true);
       try {
-        const u = await api.upload(config, uri, name, 'file');
+        const ph = sessionIdRef.current || `app-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        let up: Uploaded;
+        try {
+          up = await api.upload(config, uri, name, 'file');
+        } catch (e: any) {
+          Alert.alert('语音上传失败', e instanceof UploadTooLargeError ? e.message : name);
+          return;
+        }
+        activeReqRef.current = ph;
+        const att: Attachment = { kind: 'file', name, uri };
         setMessages((prev) => [
           ...prev,
-          { id: null, role: 'user', content: '请读取这个文件并告诉我这是什么', createdAt: null, attachments: [att] },
-          { id: null, role: 'assistant', content: '', createdAt: null },
+          { id: localUserMessageId(ph), role: 'user', content: '请读取这个文件并告诉我这是什么', createdAt: null, attachments: [att] },
+          { id: localAssistantMessageId(ph), role: 'assistant', content: '', createdAt: null },
         ]);
         setStreaming(true);
         const ok = connection.send({
+          reqId: ph,
           content: '请读取这个文件并告诉我这是什么',
           model: currentModel ?? undefined,
           sessionId: ph,
-          attachments: [{ kind: 'file', fileId: u.fileId }],
+          attachments: [{ kind: 'file', fileId: up.fileId }],
         });
         if (!ok) {
           activeReqRef.current = null;
           setStreaming(false);
-          setMessages((prev) => [
-            ...prev,
-            { id: null, role: 'assistant', content: '⚠️ 连接已断开，请稍后重试', createdAt: null },
-          ]);
+          setMessages((prev) => removeLocalRequestMessages(prev, ph));
+          await api.deleteUpload(config, up.fileId).catch(() => {});
         }
-      } catch {
-        activeReqRef.current = null;
-        Alert.alert('语音上传失败', name);
+      } finally {
+        sendingRef.current = false;
+        setSending(false);
       }
     },
     [config, currentModel]
@@ -478,7 +533,7 @@ export default function ChatScreen() {
             ref={listRef}
             data={invertedMessages}
             inverted
-            keyExtractor={(item, i) => item.id ?? `${item.role}-${i}`}
+            keyExtractor={(item) => item.id!}
             contentContainerStyle={styles.list}
             onScroll={({ nativeEvent }) => {
               const { contentOffset } = nativeEvent;
@@ -518,10 +573,8 @@ export default function ChatScreen() {
           {/* 键盘弹起时输入框与键盘之间留出间距（避免重叠） */}
           <View style={{ paddingBottom: 18 }}>
             <InputBar
-              onSend={(t) => {
-                send(t);
-              }}
-              disabled={streaming || !online}
+              onSend={send}
+              disabled={streaming || sending || !online}
               online={online}
               attachments={pendingAtts}
               onAttachmentsChange={setPendingAtts}

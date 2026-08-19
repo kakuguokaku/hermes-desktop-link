@@ -14,6 +14,8 @@ import {
 } from 'react-native';
 import { ConversationList } from '../components/conversation-list';
 import { api, type Attachment } from '../lib/api';
+import { contentForSend } from '../lib/chat-prompt';
+import { UploadTooLargeError } from '../lib/upload-limits';
 import { connection } from '../lib/connection';
 import { getConfig, type ConnConfig } from '../lib/storage';
 import { getIncomingShare, resetIncomingShare, subscribeIncoming, type IncomingShare } from '../lib/share-intent';
@@ -91,6 +93,7 @@ export default function ShareScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [sending, setSending] = useState(false);
+  const [pendingReqId, setPendingReqId] = useState<string | null>(null);
 
   useEffect(() => {
     getConfig().then((cfg) => {
@@ -105,6 +108,22 @@ export default function ShareScreen() {
 
   useEffect(() => subscribeIncoming(() => setIncoming(getIncomingShare())), []);
 
+  useEffect(
+    () =>
+      connection.subscribeRequestResult((result) => {
+        if (!pendingReqId || result.reqId !== pendingReqId) return;
+        setSending(false);
+        setPendingReqId(null);
+        if (result.type === 'error') {
+          Alert.alert('发送失败', result.error || '电脑端未能处理该分享');
+          return;
+        }
+        resetIncomingShare();
+        if (selectedId) router.replace({ pathname: '/chat/[id]', params: { id: selectedId } });
+      }),
+    [pendingReqId, selectedId, router]
+  );
+
   const firstFile = incoming?.files?.[0];
   const preview = useMemo(() => {
     if (firstFile) {
@@ -117,7 +136,13 @@ export default function ShareScreen() {
 
   const buildContent = useCallback(() => {
     const typed = note.trim();
-    if (firstFile) return typed; // 文件：bridge 会自动加默认提示
+    if (firstFile) {
+      // 纯文件/纯图片/混合：无备注时补默认提示词（与对话页、bridge 一致，避免空正文被丢弃）
+      const files = incoming?.files ?? [];
+      const hasImage = files.some((f) => (f.mimeType || '').startsWith('image/'));
+      const hasFile = files.some((f) => !(f.mimeType || '').startsWith('image/'));
+      return contentForSend(typed, hasImage, hasFile);
+    }
     const shared = incoming?.webUrl || incoming?.text || '';
     return [typed, shared].filter(Boolean).join('\n');
   }, [note, firstFile, incoming]);
@@ -131,21 +156,21 @@ export default function ShareScreen() {
       try {
         const u = await api.upload(config, f.path, f.fileName || '附件', kind);
         uploaded.push({ kind: u.kind, fileId: u.fileId });
-      } catch {
+      } catch (e: any) {
         setSending(false);
-        Alert.alert('附件上传失败', f.fileName || '文件');
-        return;
+        Alert.alert('附件上传失败', e instanceof UploadTooLargeError ? e.message : f.fileName || '文件');
+        return; // 留在本页，不清空用户选择
       }
     }
     const content = buildContent();
-    const ok = connection.send({ content, sessionId: selectedId, attachments: uploaded });
-    setSending(false);
+    const reqId = 'share-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+    const ok = connection.send({ reqId, content, sessionId: selectedId, attachments: uploaded });
     if (!ok) {
+      setSending(false);
       Alert.alert('发送失败', '请检查与电脑的连接');
       return;
     }
-    resetIncomingShare();
-    router.replace({ pathname: '/chat/[id]', params: { id: selectedId } });
+    setPendingReqId(reqId);
   }, [config, selectedId, sending, incoming, buildContent, router]);
 
   if (!incoming || !preview) {

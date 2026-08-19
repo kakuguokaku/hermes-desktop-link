@@ -123,14 +123,37 @@ async function takeInboxFile(): Promise<IncomingShare | null> {
   return { files: [{ path, fileName: newest.name, mimeType: mimeFromName(newest.name) }] };
 }
 
+/** 把分享文件复制到 app cache，避免 iOS 临时文件被系统提前清理 */
+async function copyShareFileToCache(f: { path: string; mimeType?: string; fileName?: string; size?: number }) {
+  try {
+    const dest = new File(Paths.cache, 'share_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6) + '_' + (f.fileName || 'file'));
+    new File(f.path).copy(dest);
+    return { path: dest.uri, mimeType: f.mimeType, fileName: f.fileName, size: f.size };
+  } catch {
+    return f; // 复制失败仍用原路径
+  }
+}
+
 /** 根布局调用：把 expo-share-intent 结果 + Inbox 兜底同步到单例 */
 export function useShareIntentBridge() {
   const { hasShareIntent, shareIntent, resetShareIntent } = useShareIntent();
   useEffect(() => {
-    if (hasShareIntent && shareIntent) {
-      const si = shareIntent as unknown as IncomingShare;
-      setIncomingShare({ text: si.text, webUrl: si.webUrl, files: si.files });
+    if (!hasShareIntent || !shareIntent) return;
+    const si = shareIntent as unknown as IncomingShare;
+    const files = si.files ?? [];
+    if (!files.length) {
+      setIncomingShare({ text: si.text, webUrl: si.webUrl });
+      return;
     }
+    // 先把文件复制到 cache 再进分享页（异步完成后更新单例）
+    let alive = true;
+    (async () => {
+      const copied = await Promise.all(files.map(copyShareFileToCache));
+      if (alive) setIncomingShare({ text: si.text, webUrl: si.webUrl, files: copied });
+    })();
+    return () => {
+      alive = false;
+    };
   }, [hasShareIntent, shareIntent]);
 
   // 「拷贝到 KAKU Hermes」兜底：扫 Inbox（免 App Group），冷启动 + 每次回前台

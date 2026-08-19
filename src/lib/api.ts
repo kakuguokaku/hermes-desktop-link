@@ -3,6 +3,7 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { File, Paths } from 'expo-file-system';
 import type { ConnConfig } from './storage';
+import { assertUploadSize, UploadTooLargeError } from './upload-limits';
 
 export type Model = { id: string; name: string; provider: string };
 export type SessionSummary = {
@@ -96,9 +97,13 @@ export const api = {
   health: (c: ConnConfig) => jfetch<{ ok: boolean }>(c, '/api/health'),
   models: (c: ConnConfig) => jfetch<{ models: Model[]; defaultModel: string | null }>(c, '/api/models'),
   sessions: (c: ConnConfig) => jfetch<{ sessions: SessionSummary[] }>(c, '/api/sessions'),
-  session: (c: ConnConfig, id: string) => jfetch<SessionDetail>(c, `/api/sessions/${encodeURIComponent(id)}`),
+  session: (c: ConnConfig, id: string, fresh = false) =>
+    jfetch<SessionDetail>(c, `/api/sessions/${encodeURIComponent(id)}${fresh ? '?fresh=1' : ''}`),
   cron: (c: ConnConfig) => jfetch<{ tasks: CronTask[] }>(c, '/api/cron'),
   upload: async (c: ConnConfig, fileUri: string, name: string, kind: 'image' | 'file'): Promise<Uploaded> => {
+    // 上传前先取真实大小：超限不读 Base64、不发网络请求（避免大文件内存暴涨）
+    const info = await FileSystem.getInfoAsync(fileUri);
+    assertUploadSize(info.exists ? (info.size ?? 0) : 0, kind);
     const b64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
     const baseUrl = await resolveActiveBaseUrl(c);
     const res = await fetch(`${baseUrl}/api/upload`, {
@@ -119,6 +124,8 @@ export const api = {
     });
     return f.uri;
   },
+  deleteUpload: (c: ConnConfig, fileId: string) =>
+    jfetch<{ ok: boolean }>(c, `/api/uploads/${encodeURIComponent(fileId)}`, { method: 'DELETE' }),
   removeSession: (c: ConnConfig, id: string) =>
     jfetch<{ ok: boolean }>(c, `/api/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   archiveSession: (c: ConnConfig, id: string) =>
@@ -138,7 +145,7 @@ export type StreamEvents = {
 
 export type StreamHandle = {
   stop: () => void;
-  send: (payload: { content: string; model?: string; sessionId?: string; attachments?: { kind: 'image' | 'file'; fileId: string }[] }) => boolean;
+  send: (payload: { content: string; model?: string; sessionId?: string; reqId?: string; attachments?: { kind: 'image' | 'file'; fileId: string }[] }) => boolean;
   sendRaw: (data: object) => boolean;
 };
 

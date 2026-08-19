@@ -17,9 +17,17 @@ import { Ionicons } from '@expo/vector-icons';
 import { RecordingPresets, requestRecordingPermissionsAsync, setAudioModeAsync, useAudioRecorder } from 'expo-audio';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import * as LegacyFS from 'expo-file-system/legacy';
 import type { Attachment } from '../lib/api';
+import { formatBytes } from '../lib/upload-limits';
 import { radius, shadow, type Colors, type FontTokens } from '../lib/theme';
 import { useFont, useTheme } from '../lib/theme-context';
+
+/** 取文件扩展名（用于文件卡片类型标识） */
+function extOf(name: string): string {
+  const i = name.lastIndexOf('.');
+  return i > 0 ? name.slice(i + 1) : '';
+}
 
 const createStyles = (colors: Colors, font: FontTokens) =>
   StyleSheet.create({
@@ -32,22 +40,31 @@ const createStyles = (colors: Colors, font: FontTokens) =>
       marginBottom: 6,
       paddingHorizontal: 4,
     },
-    // 待发附件区
-    attachList: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 8 },
-    attachChip: {
+    // 待发附件区（独立卡片：图片 72×72 缩略图 / 文件图标 + 名称两行 + 大小 + 移除）
+    attachList: { gap: 8, paddingBottom: 8 },
+    attachCard: {
       flexDirection: 'row',
       alignItems: 'center',
-      gap: 6,
+      gap: 10,
       backgroundColor: colors.card,
       borderWidth: StyleSheet.hairlineWidth,
       borderColor: colors.border,
-      borderRadius: 10,
-      padding: 6,
-      paddingHorizontal: 8,
-      maxWidth: 200,
+      borderRadius: 12,
+      padding: 8,
     },
-    attachThumb: { width: 26, height: 26, borderRadius: 6 },
-    attachName: { fontSize: font.tiny, color: colors.textPrimary, maxWidth: 120 },
+    attachThumb: { width: 72, height: 72, borderRadius: 10 },
+    attachFileIcon: {
+      width: 72,
+      height: 72,
+      borderRadius: 10,
+      backgroundColor: colors.accentSoft,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    attachInfo: { flex: 1, minWidth: 0 },
+    attachName: { fontSize: font.body, fontWeight: '600', color: colors.textPrimary, lineHeight: 18 },
+    attachMeta: { fontSize: font.tiny, color: colors.textMuted, marginTop: 3 },
+    attachRemove: { padding: 4 },
     bar: {
       flexDirection: 'row',
       alignItems: 'flex-end',
@@ -157,7 +174,8 @@ export function InputBar({
   onPreviewAttachment,
   onSendVoice,
 }: {
-  onSend: (text: string) => void;
+  /** 返回是否已被父层接管（true 才清空输入；false 表示发送失败，保留草稿） */
+  onSend: (text: string) => boolean | Promise<boolean>;
   disabled?: boolean;
   online: boolean;
   attachments?: Attachment[];
@@ -187,7 +205,9 @@ export function InputBar({
   }, []);
 
   // 语音直传：按住录音、松开发送、上滑取消（Hermes 侧 faster-whisper 转写理解）
+  // 录音状态机：idle → preparing → recording → stopping → idle（preparing/stopping 期间忽略重复触发）
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const voicePhase = useRef<'idle' | 'preparing' | 'recording' | 'stopping'>( 'idle' );
   const pressY = useRef(0);
   const cancelledRef = useRef(false);
   const [cancelling, setCancelling] = useState(false);
@@ -195,47 +215,86 @@ export function InputBar({
   onSendVoiceRef.current = onSendVoice;
 
   const startVoice = useCallback(async () => {
-    const perm = await requestRecordingPermissionsAsync();
-    if (!perm.granted) {
-      showHint('需要麦克风权限');
-      return;
-    }
+    if (voicePhase.current !== 'idle') return;
+    voicePhase.current = 'preparing';
     try {
-      // iOS 录音必须先把音频会话切到"允许录音"模式，否则 prepareToRecordAsync 报错
-      await setAudioModeAsync({ allowsRecording: true });
+      const perm = await requestRecordingPermissionsAsync();
+      if (!perm.granted) {
+        voicePhase.current = 'idle';
+        showHint('需要麦克风权限');
+        return;
+      }
+      // 必须先切音频会话（静音模式可播放 + 允许录音），再 prepare，否则 iOS 报 Recording not allowed
+      await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true });
       await recorder.prepareToRecordAsync();
+      if (voicePhase.current !== 'preparing') {
+        // 松手太快：取消本次录音
+        try { await recorder.stop(); } catch {}
+        voicePhase.current = 'idle';
+        return;
+      }
       recorder.record();
+      voicePhase.current = 'recording';
       setRecording(true);
       cancelledRef.current = false;
       setCancelling(false);
       setVoiceHint('松开发送 · 上滑取消');
     } catch (e: any) {
+      voicePhase.current = 'idle';
       setRecording(false);
-      showHint(`录音启动失败：${String(e?.message || e)}`);
+      showHint('录音启动失败：' + String(e?.message || e));
     }
   }, [recorder, showHint]);
 
-  const endVoice = useCallback(async () => {
-    if (!recording) return;
-    setRecording(false);
-    const cancel = cancelledRef.current || cancelling;
-    setCancelling(false);
-    setVoiceHint(null);
-    try {
-      await recorder.stop();
-    } catch {}
-    if (cancel) {
-      showHint('已取消');
-      return;
-    }
-    const uri = recorder.uri;
-    if (uri) {
-      const name = `语音_${Date.now()}.m4a`;
+  const stopVoice = useCallback(
+    async (cancel: boolean) => {
+      if (voicePhase.current === 'preparing') {
+        // prepare 未完成就松手：标记取消，等 prepare 返回后由 startVoice 收尾
+        voicePhase.current = 'idle';
+        setRecording(false);
+        setVoiceHint(null);
+        setCancelling(false);
+        return;
+      }
+      if (voicePhase.current !== 'recording') return;
+      voicePhase.current = 'stopping';
+      setRecording(false);
+      setVoiceHint(null);
+      setCancelling(false);
+      try {
+        await recorder.stop();
+      } catch {}
+      voicePhase.current = 'idle';
+      if (cancel) {
+        showHint('已取消');
+        return;
+      }
+      const uri = recorder.uri;
+      if (!uri) {
+        showHint('没有录到声音');
+        return;
+      }
+      // 确认文件存在且非空，再交给上传
+      try {
+        const info = await LegacyFS.getInfoAsync(uri);
+        if (!info.exists || !info.size) {
+          showHint('没有录到声音');
+          return;
+        }
+      } catch {
+        // 读取失败也放行，交给上传流程
+      }
+      const name = '语音_' + Date.now() + '.m4a';
       onSendVoiceRef.current?.(uri, name);
-    } else {
-      showHint('没有录到声音');
-    }
-  }, [recording, cancelling, recorder, showHint]);
+    },
+    [recorder, showHint]
+  );
+
+  const endVoice = useCallback(() => {
+    const cancel = cancelledRef.current || cancelling;
+    cancelledRef.current = false;
+    stopVoice(cancel);
+  }, [cancelling, stopVoice]);
 
   const pickCamera = useCallback(async () => {
     const perm = await ImagePicker.requestCameraPermissionsAsync();
@@ -288,12 +347,15 @@ export function InputBar({
     setLocalAtts((p) => p.filter((_, i) => i !== idx));
   }, []);
 
-  const send = useCallback(() => {
+  // 发送：父层确认接管（返回 true）后才清空文字与附件；失败保留草稿可重试
+  const send = useCallback(async () => {
     const t = text.trim();
     if ((!t && localAtts.length === 0) || disabled) return;
-    onSend(t);
-    setText('');
-    setLocalAtts([]); // 发送后清空待发附件
+    const accepted = await onSend(t);
+    if (accepted) {
+      setText('');
+      setLocalAtts([]); // 发送成功后清空待发附件
+    }
   }, [text, localAtts, disabled, onSend]);
 
   const canSend = text.trim().length > 0 || localAtts.length > 0;
@@ -301,6 +363,7 @@ export function InputBar({
   useEffect(() => {
     return () => {
       if (hintTimer.current) clearTimeout(hintTimer.current);
+      voicePhase.current = 'idle';
       try {
         recorder.stop();
       } catch {}
@@ -313,19 +376,30 @@ export function InputBar({
       {localAtts.length > 0 ? (
         <View style={styles.attachList}>
           {localAtts.map((a, i) => (
-            <View key={i} style={styles.attachChip}>
-              {a.kind === 'image' && a.uri ? (
-                <Pressable onPress={() => onPreviewAttachment?.(a)} accessibilityLabel="预览附件">
+            <View key={i} style={styles.attachCard}>
+              <Pressable
+                onPress={() => (a.kind === 'image' && a.uri ? onPreviewAttachment?.(a) : undefined)}
+                accessibilityLabel="预览附件"
+              >
+                {a.kind === 'image' && a.uri ? (
                   <Image source={{ uri: a.uri }} style={styles.attachThumb} />
-                </Pressable>
-              ) : (
-                <Ionicons name="document-outline" size={14} color={colors.accent} />
-              )}
-              <Text style={styles.attachName} numberOfLines={1}>
-                {a.name}
-              </Text>
-              <Pressable onPress={() => removeAtt(i)} hitSlop={8} accessibilityLabel="移除附件">
-                <Ionicons name="close" size={14} color={colors.textMuted} />
+                ) : (
+                  <View style={styles.attachFileIcon}>
+                    <Ionicons name="document-text-outline" size={26} color={colors.accent} />
+                  </View>
+                )}
+              </Pressable>
+              <View style={styles.attachInfo}>
+                <Text style={styles.attachName} numberOfLines={2}>
+                  {a.name}
+                </Text>
+                <Text style={styles.attachMeta} numberOfLines={1}>
+                  {a.kind === 'image' ? '图片' : (extOf(a.name) || '文件').toUpperCase()}
+                  {a.size ? ' · ' + formatBytes(a.size) : ''}
+                </Text>
+              </View>
+              <Pressable onPress={() => removeAtt(i)} hitSlop={8} style={styles.attachRemove} accessibilityLabel="移除附件">
+                <Ionicons name="close-circle" size={20} color={colors.textMuted} />
               </Pressable>
             </View>
           ))}
