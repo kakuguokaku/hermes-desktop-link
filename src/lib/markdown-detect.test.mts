@@ -1,0 +1,26 @@
+import { hasMarkdown } from './markdown-detect.ts';
+import assert from 'node:assert';
+
+assert.equal(hasMarkdown('你好，这是一段纯文字，没有任何标记'), false, '纯文本');
+assert.equal(hasMarkdown('正常的一句话。'), false, '中文句号');
+assert.equal(hasMarkdown(''), false, '空串');
+assert.equal(hasMarkdown('**加粗**文字'), true, '加粗');
+assert.equal(hasMarkdown('看看 `code` 行内代码'), true, '行内代码');
+assert.equal(hasMarkdown('- 列表项'), true, '无序列表');
+assert.equal(hasMarkdown('1. 有序列表'), true, '有序列表');
+assert.equal(hasMarkdown('# 标题'), true, '标题');
+assert.equal(hasMarkdown('> 引用'), true, '引用');
+assert.equal(hasMarkdown('```\ncode\n```'), true, '代码块');
+assert.equal(hasMarkdown('这是一个 [链接](https://a.b)'), true, '链接');
+assert.equal(hasMarkdown('![图片](https://a.b/c.png)'), true, '图片');
+assert.equal(hasMarkdown('| 表头 | 表头 |'), true, '表格');
+assert.equal(hasMarkdown('---'), true, '分隔线');
+assert.equal(hasMarkdown('你好\n- 要点1\n- 要点2'), true, '引导句+无序列表');
+assert.equal(hasMarkdown('说明\n1. 第一\n2. 第二'), true, '引导句+有序列表');
+assert.equal(hasMarkdown('2*3*4=24'), false, '算术不应算斜体');
+assert.equal(hasMarkdown('a*b*c'), false, '字母乘号不应算斜体');
+assert.equal(hasMarkdown('~~删除线~~'), true, '删除线');
+assert.equal(hasMarkdown('#标题'), true, '无空格标题');
+assert.equal(hasMarkdown('>引用'), true, '无空格引用');
+assert.equal(hasMarkdown('强调*这里*一下'), true, '中文语境斜体');
+console.log('ALL TESTS PASSED');
