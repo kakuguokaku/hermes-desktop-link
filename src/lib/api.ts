@@ -3,7 +3,9 @@
 import * as FileSystem from 'expo-file-system/legacy';
 import { File, Paths } from 'expo-file-system';
 import type { ConnConfig } from './storage';
-import { assertUploadSize, UploadTooLargeError } from './upload-limits';
+import { assertUploadSize } from './upload-limits';
+import { makeLegacyUploadPayload } from './upload-format';
+import { normalizeSessionDetail } from './session-normalize';
 
 export type Model = { id: string; name: string; provider: string };
 export type SessionSummary = {
@@ -98,25 +100,20 @@ export const api = {
   models: (c: ConnConfig) => jfetch<{ models: Model[]; defaultModel: string | null }>(c, '/api/models'),
   sessions: (c: ConnConfig) => jfetch<{ sessions: SessionSummary[] }>(c, '/api/sessions'),
   session: (c: ConnConfig, id: string, fresh = false) =>
-    jfetch<SessionDetail>(c, `/api/sessions/${encodeURIComponent(id)}${fresh ? '?fresh=1' : ''}`),
+    jfetch<SessionDetail>(c, `/api/sessions/${encodeURIComponent(id)}${fresh ? '?fresh=1' : ''}`).then(normalizeSessionDetail),
   cron: (c: ConnConfig) => jfetch<{ tasks: CronTask[] }>(c, '/api/cron'),
   upload: async (c: ConnConfig, fileUri: string, name: string, kind: 'image' | 'file'): Promise<Uploaded> => {
     // 上传前先取真实大小：超限不读 Base64、不发网络请求（避免大文件内存暴涨）
     const info = await FileSystem.getInfoAsync(fileUri);
     assertUploadSize(info.exists ? (info.size ?? 0) : 0, kind);
-    const baseUrl = await resolveActiveBaseUrl(c);
-    const res = await FileSystem.uploadAsync(`${baseUrl}/api/upload`, fileUri, {
-      httpMethod: 'POST',
-      uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-      headers: {
-        Authorization: `Bearer ${c.token}`,
-        'Content-Type': 'application/octet-stream',
-        'X-Upload-Name': encodeURIComponent(name),
-        'X-Upload-Kind': kind,
-      },
+    // Keep the wire format compatible with already-running v1.19 bridges.
+    // The bridge accepts this format alongside binary uploads, so an app update
+    // never turns every attachment into a failure until the desktop service is restarted.
+    const dataBase64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
+    return jfetch<Uploaded>(c, '/api/upload', {
+      method: 'POST',
+      body: JSON.stringify(makeLegacyUploadPayload(name, kind, dataBase64)),
     });
-    if (res.status < 200 || res.status >= 300) throw new Error(`upload failed: ${res.status}`);
-    return JSON.parse(res.body) as Uploaded;
   },
   // 拉取已上传附件（历史图片/文件）到缓存文件，返回 file:// 路径（带 token，不在 URL 暴露；
   // 不用 data URL/FileReader——大图 base64 会导致 RN 崩溃）

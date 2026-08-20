@@ -181,11 +181,31 @@ export default function ConversationsScreen() {
         }}
       />
       {config ? (
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 92 + (kavEpoch % 2) : 0}
-        >
+        <View style={styles.flex}>
+          <View style={styles.searchWrap}>
+            <View style={styles.searchBar}>
+              <Ionicons name="search" size={15} color={colors.textMuted} />
+              <TextInput
+                style={styles.searchInput}
+                value={query}
+                onChangeText={setQuery}
+                placeholder="搜索会话标题"
+                placeholderTextColor={colors.textMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {query.length > 0 ? (
+                <Pressable onPress={() => setQuery('')} hitSlop={8} accessibilityLabel="清空搜索">
+                  <Ionicons name="close-circle" size={15} color={colors.textMuted} />
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+          <KeyboardAvoidingView
+            style={styles.flex}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 92 + (kavEpoch % 2) : 0}
+          >
           <ConversationList
             ref={listRef}
             config={config}
@@ -212,27 +232,8 @@ export default function ConversationsScreen() {
             fill={!chatOpen}
             reloadTick={taskTick}
           />
-          {/* 搜索栏：和列表同在一个 KAV，键盘弹起时整体上移，搜索栏不被键盘盖住 */}
-          <View style={styles.searchWrap}>
-            <View style={styles.searchBar}>
-              <Ionicons name="search" size={15} color={colors.textMuted} />
-              <TextInput
-                style={styles.searchInput}
-                value={query}
-                onChangeText={setQuery}
-                placeholder="搜索会话标题"
-                placeholderTextColor={colors.textMuted}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              {query.length > 0 ? (
-                <Pressable onPress={() => setQuery('')} hitSlop={8} accessibilityLabel="清空搜索">
-                  <Ionicons name="close-circle" size={15} color={colors.textMuted} />
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
-        </KeyboardAvoidingView>
+          </KeyboardAvoidingView>
+        </View>
       ) : null}
     </View>
   );
