@@ -33,7 +33,10 @@ export function withStableMessageKeys(messages: Message[]): Message[] {
 
 /** 判断服务端快照是否已包含同一条消息（按角色+内容+附件数，用于去重本地乐观消息） */
 function comparableContent(content: string): string {
-  return String(content || '').replace(/@(image|file):\S+\s*/g, '').trim();
+  return String(content || '')
+    .replace(/\[The user attached an image\.[\s\S]*?\]\s*/gi, '')
+    .replace(/@(image|file):\S+\s*/g, '')
+    .trim();
 }
 
 function hasHistoricalAttachment(content: string): boolean {

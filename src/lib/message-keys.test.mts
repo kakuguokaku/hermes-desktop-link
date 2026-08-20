@@ -51,6 +51,15 @@ test('带历史图片标记的服务端消息确认本地图片后不重复显�
   assert.equal(merged[0].content, '@image:C:\\uploads\\a.jpg 照片里是什么');
 });
 
+test('Hermes 图片内部描述不阻止服务端消息确认本机乐观图片', () => {
+  const prev = [
+    { id: 'local-user-r-image', role: 'user' as const, content: '照片里是什么', createdAt: null, attachments: [{ kind: 'image' as const, name: 'a.jpg', uri: 'file:///a.jpg' }] },
+  ];
+  const server = [userMsg('[The user attached an image. Internal vision description.]\n@image:C:\\uploads\\a.jpg 照片里是什么', '2026-01-01')];
+  const merged = mergeServerWithLocal(server, prev);
+  assert.equal(merged.length, 1);
+});
+
 test('mergeServerWithLocal 未确认的本地消息保留在尾部', () => {
   const prev = [
     { id: 'local-user-r9', role: 'user' as const, content: '待确认', createdAt: null, attachments: [{ kind: 'file' as const, name: 'a.pdf', size: 10 }] },
