@@ -173,8 +173,9 @@ export function InputBar({
   onAttachmentsChange,
   onPreviewAttachment,
   onSendVoice,
+  resetEpoch = 0,
 }: {
-  /** 返回是否已被父层接管（true 才清空输入；false 表示发送失败，保留草稿） */
+  /** 返回是否已被父层接管；发送后由 resetEpoch 在请求结束时统一清空草稿。 */
   onSend: (text: string) => boolean | Promise<boolean>;
   disabled?: boolean;
   online: boolean;
@@ -183,6 +184,8 @@ export function InputBar({
   onPreviewAttachment?: (a: Attachment) => void;
   /** 语音直传：录完一段语音立即发送（按住录音/松开发送/上滑取消） */
   onSendVoice?: (uri: string, name: string) => void;
+  /** 请求结束后由父层递增，避免发送开始时重置原生输入组件。 */
+  resetEpoch?: number;
 }) {
   const colors = useTheme();
   const font = useFont();
@@ -194,9 +197,16 @@ export function InputBar({
   const [localAtts, setLocalAtts] = useState<Attachment[]>(attachments ?? []);
   const [menuOpen, setMenuOpen] = useState(false);
   const hintTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const previousResetEpoch = useRef(resetEpoch);
 
   useEffect(() => setLocalAtts(attachments ?? []), [attachments]);
   useEffect(() => onAttachmentsChange?.(localAtts), [localAtts, onAttachmentsChange]);
+  useEffect(() => {
+    if (previousResetEpoch.current === resetEpoch) return;
+    previousResetEpoch.current = resetEpoch;
+    setText('');
+    setLocalAtts([]);
+  }, [resetEpoch]);
 
   const showHint = useCallback((msg: string) => {
     setVoiceHint(msg);
@@ -347,15 +357,12 @@ export function InputBar({
     setLocalAtts((p) => p.filter((_, i) => i !== idx));
   }, []);
 
-  // 发送：父层确认接管（返回 true）后才清空文字与附件；失败保留草稿可重试
+  // 发送开始时不改动输入区：iOS Fabric 会在同一批更新中新增消息并回收 TextInput，
+  // 附件/草稿会在 bridge 完成该请求后由 resetEpoch 统一清理。
   const send = useCallback(async () => {
     const t = text.trim();
     if ((!t && localAtts.length === 0) || disabled) return;
-    const accepted = await onSend(t);
-    if (accepted) {
-      setText('');
-      setLocalAtts([]); // 发送成功后清空待发附件
-    }
+    await onSend(t);
   }, [text, localAtts, disabled, onSend]);
 
   const canSend = text.trim().length > 0 || localAtts.length > 0;
@@ -373,8 +380,7 @@ export function InputBar({
   return (
     <View style={styles.wrap}>
       {voiceHint ? <Text style={styles.hint}>{voiceHint}</Text> : null}
-      {localAtts.length > 0 ? (
-        <View style={styles.attachList}>
+      <View style={[styles.attachList, localAtts.length === 0 && { paddingBottom: 0 }]}>
           {localAtts.map((a, i) => (
             <View key={i} style={styles.attachCard}>
               <Pressable
@@ -403,8 +409,7 @@ export function InputBar({
               </Pressable>
             </View>
           ))}
-        </View>
-      ) : null}
+      </View>
       <View style={styles.bar}>
         <Pressable
           style={[styles.attachBtn, menuOpen && styles.attachBtnActive]}
@@ -454,7 +459,7 @@ export function InputBar({
           placeholder={online ? '输入消息...' : '电脑未连接'}
           placeholderTextColor={colors.textMuted}
           multiline
-          editable={online}
+          editable={online && !disabled}
         />
         <TouchableOpacity
           onPress={send}

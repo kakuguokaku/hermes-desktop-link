@@ -34,6 +34,7 @@ import {
   type Uploaded,
 } from '../../lib/api';
 import { contentForSend } from '../../lib/chat-prompt';
+import { beginComposerSubmission, finishComposerSubmission } from '../../lib/composer-submission';
 import { shouldHandleStreamEvent, shouldPollSession } from '../../lib/chat-polling';
 import { PHONE_DEFAULT_MODEL, filterPhoneModels, resolvePhoneModel } from '../../lib/phone-models';
 import {
@@ -123,13 +124,22 @@ export default function ChatScreen() {
     uri: null,
   });
   const [kavEpoch, setKavEpoch] = useState(0); // 回前台时强制 KeyboardAvoidingView 重新计算布局
-  const [pendingAtts, setPendingAtts] = useState<Attachment[]>([]); // 待发附件（发送前显示在输入栏上方）
+  const [composer, setComposer] = useState({ attachments: [] as Attachment[], resetEpoch: 0, submitting: false });
+  const pendingAtts = composer.attachments; // 待发附件（发送前显示在输入栏上方）
   const [sending, setSending] = useState(false); // 附件上传/发送中：禁用重复发送
   const [focused, setFocused] = useState(true); // 页面聚焦（离开页面停止轮询）
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
   const sendingRef = useRef(false);
   const pollLock = useRef(false); // 轮询互斥：上一轮未结束不发起下一轮
   const pollFails = useRef(0); // 连续失败静默退避，不弹窗
+
+  const setPendingAtts = useCallback((attachments: Attachment[]) => {
+    setComposer((prev) => ({ ...prev, attachments, submitting: false }));
+  }, []);
+  const settleComposer = useCallback(() => {
+    // 等当前完成/错误的消息渲染提交后再回收输入区附件，和 initial optimistic rows 分离为两批更新。
+    requestAnimationFrame(() => setComposer((prev) => finishComposerSubmission(prev)));
+  }, []);
 
   const listRef = useRef<FlatList<Message>>(null);
   const sessionIdRef = useRef<string | null>(sessionId);
@@ -285,6 +295,7 @@ export default function ChatScreen() {
         if (reqId !== undefined && reqId !== activeReqRef.current) return; // 忽略其它会话（后台并发）的完成，避免自动跳转
         activeReqRef.current = null;
         setStreaming(false);
+        settleComposer();
         if (SESSION_RE.test(realId || '')) {
           if (!sessionIdRef.current || sessionIdRef.current !== realId) setSessionId(realId);
           refreshSession(config, realId);
@@ -294,6 +305,7 @@ export default function ChatScreen() {
         if (reqId !== undefined && reqId !== activeReqRef.current) return;
         activeReqRef.current = null;
         setStreaming(false);
+        settleComposer();
         setMessages((prev) =>
           reqId
             ? replaceLocalAssistantMessage(prev, reqId, `⚠️ 出错了：${error}`)
@@ -302,7 +314,7 @@ export default function ChatScreen() {
       },
     });
     return () => connection.setStreamHandlers(null);
-  }, [config, refreshSession]);
+  }, [config, refreshSession, settleComposer]);
 
   // 流式看门狗：45s 无活动（message.complete 丢失 / WS 中途断开）→ 复位 streaming 并拉回最新
   useEffect(() => {
@@ -341,6 +353,7 @@ export default function ChatScreen() {
         }
         activeReqRef.current = ph;
         streamingRef.current = true;
+        setComposer((prev) => beginComposerSubmission(prev));
         setMessages((prev) => [
           ...prev,
           { id: localUserMessageId(ph), role: 'user', content, createdAt: null, attachments: pendingAtts },
@@ -362,7 +375,6 @@ export default function ChatScreen() {
           await Promise.all(uploaded.map((a) => api.deleteUpload(config, a.fileId).catch(() => {})));
           return false;
         }
-        setPendingAtts([]);
         return true;
       } finally {
         sendingRef.current = false;
@@ -580,6 +592,7 @@ export default function ChatScreen() {
               online={online}
               attachments={pendingAtts}
               onAttachmentsChange={setPendingAtts}
+              resetEpoch={composer.resetEpoch}
               onSendVoice={sendVoice}
               onPreviewAttachment={(a) => {
                 if (a.kind === 'image' && a.uri) openImageViewer(a.uri);

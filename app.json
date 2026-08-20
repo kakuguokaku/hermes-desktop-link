@@ -2,7 +2,7 @@
   "expo": {
     "name": "KAKU Hermes",
     "slug": "kaku-hermes",
-    "version": "1.0.22",
+    "version": "1.0.23",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "hermesdl",
@@ -87,8 +87,7 @@
       ]
     ],
     "experiments": {
-      "typedRoutes": true,
-      "reactCompiler": true
+      "typedRoutes": true
     },
     "extra": {
       "router": {},

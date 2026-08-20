@@ -182,25 +182,6 @@ export default function ConversationsScreen() {
       />
       {config ? (
         <View style={styles.flex}>
-          <View style={styles.searchWrap}>
-            <View style={styles.searchBar}>
-              <Ionicons name="search" size={15} color={colors.textMuted} />
-              <TextInput
-                style={styles.searchInput}
-                value={query}
-                onChangeText={setQuery}
-                placeholder="搜索会话标题"
-                placeholderTextColor={colors.textMuted}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              {query.length > 0 ? (
-                <Pressable onPress={() => setQuery('')} hitSlop={8} accessibilityLabel="清空搜索">
-                  <Ionicons name="close-circle" size={15} color={colors.textMuted} />
-                </Pressable>
-              ) : null}
-            </View>
-          </View>
           <KeyboardAvoidingView
             style={styles.flex}
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -232,6 +213,27 @@ export default function ConversationsScreen() {
             fill={!chatOpen}
             reloadTick={taskTick}
           />
+          {/* 搜索栏固定在内容底部；KAV 与它同层，iOS 键盘出现时会压缩列表而不是覆盖输入框。 */}
+          <View style={styles.searchWrap}>
+            <View style={styles.searchBar}>
+              <Ionicons name="search" size={15} color={colors.textMuted} />
+              <TextInput
+                style={styles.searchInput}
+                value={query}
+                onFocus={() => setTaskOpen(false)}
+                onChangeText={setQuery}
+                placeholder="搜索全部会话"
+                placeholderTextColor={colors.textMuted}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {query.length > 0 ? (
+                <Pressable onPress={() => setQuery('')} hitSlop={8} accessibilityLabel="清空搜索">
+                  <Ionicons name="close-circle" size={15} color={colors.textMuted} />
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
           </KeyboardAvoidingView>
         </View>
       ) : null}

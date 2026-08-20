@@ -228,7 +228,7 @@ export const ConversationList = forwardRef<
           {selectMode ? (
             <View style={styles.selectBar}>
               <Pressable onPress={cancelSelect} hitSlop={8} disabled={processing}>
-                <Text style={styles.cancelText}>{processing ? '处理中…' : '取消'}</Text>
+                <Text style={styles.cancelText}>取消</Text>
               </Pressable>
               <Text style={styles.selectCount}>已选 {selected.size} 项</Text>
               <Pressable onPress={confirmAction} hitSlop={8} disabled={processing}>

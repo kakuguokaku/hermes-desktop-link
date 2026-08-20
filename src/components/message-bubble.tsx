@@ -9,6 +9,7 @@ import { useFont, useTheme } from '../lib/theme-context';
 import { MarkdownText } from './markdown';
 import { hasMarkdown } from '../lib/markdown-detect';
 import { isEmptyAssistantMessage } from '../lib/message-render-state';
+import { userMessageDisplayText } from '../lib/message-display';
 
 // 解析历史用户消息：提取 @image:<路径> / @file:<路径> 的 fileId（basename），返回清理后正文
 function parseContentAttachments(content: string) {
@@ -134,10 +135,9 @@ export function MessageBubble({
     () => (isUser ? parseContentAttachments(message.content || '') : { images: [] as string[], files: [] as string[], text: fallback }),
     [isUser, message.content, fallback]
   );
-  // Hermes 处理图片时把用户消息替换成 "[The user attached an image...]" 长描述 → 隐藏
+  // Hermes 处理图片时可能插入 "[The user attached an image...]" 长描述；仅隐藏描述，保留默认提示词。
   const isImgDump = isUser && /\[The user attached an image/i.test(message.content || '');
-  const isVoiceCommand = isUser && /请将此段语音转换为文字，并作为给你的命令执行。/.test(message.content || '');
-  const displayText = isVoiceCommand ? '发送了一条语音' : isImgDump ? '' : text;
+  const displayText = isUser ? userMessageDisplayText(text) : text;
 
   // 保留空助手消息对应的原生 View。Fabric 在 inverted FlatList 中把该项从
   // View 卸载为 null、随后又因回复到达重新挂载，会在 ShadowViewMutation 阶段崩溃。

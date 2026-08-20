@@ -1,7 +1,7 @@
 // src/app/share.tsx —— 分享扩展：发送到会话（预览 + 选会话 + 可选文字 + 发送）
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -19,6 +19,7 @@ import { UploadTooLargeError } from '../lib/upload-limits';
 import { connection } from '../lib/connection';
 import { getConfig, type ConnConfig } from '../lib/storage';
 import { getIncomingShare, resetIncomingShare, subscribeIncoming, type IncomingShare } from '../lib/share-intent';
+import { createDefaultShareTarget, shouldLeaveShareAfterBridgeAccepts } from '../lib/share-target';
 import { font, radius, type Colors, type FontTokens } from '../lib/theme';
 import { useFont, useTheme } from '../lib/theme-context';
 
@@ -92,12 +93,9 @@ export default function ShareScreen() {
   const router = useRouter();
   const [config, setConfig] = useState<ConnConfig | null>(null);
   const [incoming, setIncoming] = useState<IncomingShare | null>(() => getIncomingShare());
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string>(() => createDefaultShareTarget());
   const [note, setNote] = useState('');
   const [sending, setSending] = useState(false);
-  const pendingReqIdRef = useRef<string | null>(null);
-  const selectedIdRef = useRef<string | null>(null);
-  selectedIdRef.current = selectedId;
 
   useEffect(() => {
     getConfig().then((cfg) => {
@@ -110,23 +108,13 @@ export default function ShareScreen() {
     });
   }, [router]);
 
-  useEffect(() => subscribeIncoming(() => setIncoming(getIncomingShare())), []);
-
   useEffect(
     () =>
-      connection.subscribeRequestResult((result) => {
-        if (!pendingReqIdRef.current || result.reqId !== pendingReqIdRef.current) return;
-        setSending(false);
-        pendingReqIdRef.current = null;
-        if (result.type === 'error') {
-          Alert.alert('发送失败', result.error || '电脑端未能处理该分享');
-          return;
-        }
-        resetIncomingShare();
-        const destination = result.sessionId || selectedIdRef.current;
-        if (destination) router.replace({ pathname: '/chat/[id]', params: { id: destination } });
+      subscribeIncoming(() => {
+        setIncoming(getIncomingShare());
+        setSelectedId(createDefaultShareTarget());
       }),
-    [router]
+    []
   );
 
   const firstFile = incoming?.files?.[0];
@@ -169,14 +157,16 @@ export default function ShareScreen() {
     }
     const content = buildContent();
     const reqId = 'share-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
-    // 必须先同步记录：Bridge 可在 send 返回前发回 complete，React state 来不及更新。
-    pendingReqIdRef.current = reqId;
     const ok = connection.send({ reqId, content, sessionId: selectedId, attachments: uploaded });
     if (!ok) {
-      pendingReqIdRef.current = null;
       setSending(false);
       Alert.alert('发送失败', '请检查与电脑的连接');
       return;
+    }
+    // Bridge 已接受后由后台继续交付；立刻返回首页，避免分享扩展因等待 complete 停在“发送中”。
+    if (shouldLeaveShareAfterBridgeAccepts()) {
+      resetIncomingShare();
+      router.replace('/');
     }
   }, [config, selectedId, sending, incoming, buildContent, router]);
 
@@ -225,7 +215,7 @@ export default function ShareScreen() {
       {/* 会话列表 */}
       <View style={styles.listHeader}>
         <Text style={styles.listTitle}>发送到会话</Text>
-        <Pressable onPress={() => setSelectedId(`app-share-${Date.now()}`)} hitSlop={8} accessibilityLabel="新建会话">
+        <Pressable onPress={() => setSelectedId(createDefaultShareTarget())} hitSlop={8} accessibilityLabel="新建会话">
           <Text style={styles.newChat}>新建会话</Text>
         </Pressable>
       </View>
@@ -256,9 +246,9 @@ export default function ShareScreen() {
             multiline
           />
           <Pressable
-            style={[styles.sendBtn, (!selectedId || sending) && styles.sendDisabled]}
+            style={[styles.sendBtn, sending && styles.sendDisabled]}
             onPress={send}
-            disabled={!selectedId || sending}
+            disabled={sending}
             accessibilityLabel="发送"
           >
             <Text style={styles.sendText}>{sending ? '发送中…' : '发送'}</Text>
