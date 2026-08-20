@@ -8,6 +8,7 @@ import { radius, shadow, type Colors, type FontTokens } from '../lib/theme';
 import { useFont, useTheme } from '../lib/theme-context';
 import { MarkdownText } from './markdown';
 import { hasMarkdown } from '../lib/markdown-detect';
+import { isEmptyAssistantMessage } from '../lib/message-render-state';
 
 // 解析历史用户消息：提取 @image:<路径> / @file:<路径> 的 fileId（basename），返回清理后正文
 function parseContentAttachments(content: string) {
@@ -32,6 +33,7 @@ const createStyles = (colors: Colors, font: FontTokens) =>
     row: { flexDirection: 'row', marginBottom: 12 },
     rowUser: { justifyContent: 'flex-end', alignItems: 'flex-end' },
     rowAssistant: { justifyContent: 'flex-start', alignItems: 'flex-start' },
+    emptyAssistant: { height: 0, marginBottom: 0, overflow: 'hidden' },
     avatar: {
       width: 26,
       height: 26,
@@ -137,12 +139,12 @@ export function MessageBubble({
   const isVoiceCommand = isUser && /请将此段语音转换为文字，并作为给你的命令执行。/.test(message.content || '');
   const displayText = isVoiceCommand ? '发送了一条语音' : isImgDump ? '' : text;
 
-  // 空的 assistant 消息（非流式中）不渲染：避免残留 "（空回复）"/空白气泡（如工具调用产生的空消息）。
-  // 注意：所有 Hooks 必须在此提前 return 之前执行完毕，保证每次渲染调用顺序一致（否则 iOS 直接闪退）。
-  if (!isUser && !message.content && !isStreaming) return null;
+  // 保留空助手消息对应的原生 View。Fabric 在 inverted FlatList 中把该项从
+  // View 卸载为 null、随后又因回复到达重新挂载，会在 ShadowViewMutation 阶段崩溃。
+  const emptyAssistant = isEmptyAssistantMessage({ role: message.role, content: fallback, isStreaming: !!isStreaming });
 
   return (
-    <View style={[styles.row, isUser ? styles.rowUser : styles.rowAssistant]}>
+    <View style={[styles.row, isUser ? styles.rowUser : styles.rowAssistant, emptyAssistant && styles.emptyAssistant]}>
       {!isUser && (
         <View style={styles.avatar}>
           <Ionicons name="sparkles" size={14} color={colors.card} />
