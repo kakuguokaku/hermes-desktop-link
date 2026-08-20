@@ -34,7 +34,7 @@ import {
   type Uploaded,
 } from '../../lib/api';
 import { contentForSend } from '../../lib/chat-prompt';
-import { beginComposerSubmission, finishComposerSubmission } from '../../lib/composer-submission';
+import { beginComposerSubmission, acceptComposerSubmission, finishComposerSubmission } from '../../lib/composer-submission';
 import { shouldHandleStreamEvent, shouldPollSession } from '../../lib/chat-polling';
 import { PHONE_DEFAULT_MODEL, filterPhoneModels, resolvePhoneModel } from '../../lib/phone-models';
 import {
@@ -110,6 +110,7 @@ export default function ChatScreen() {
   const [config, setConfig] = useState<ConnConfig | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(isNew ? null : (id ?? null));
+  const [conversationTitle, setConversationTitle] = useState<string | null>(null);
   const [streaming, setStreaming] = useState(false);
   const [loading, setLoading] = useState(!isNew);
   const [models, setModels] = useState<Model[]>([]);
@@ -175,6 +176,7 @@ export default function ChatScreen() {
           if (!alive) return;
           setMessages(withStableMessageKeys(d.messages));
           setSessionId(d.session.id);
+          setConversationTitle(d.session.title || null);
           setLoadError(null);
         } catch {
           setLoadError('无法读取该会话');
@@ -192,7 +194,10 @@ export default function ChatScreen() {
   const refreshSession = useCallback((cfg: ConnConfig, realId: string) => {
     api
       .session(cfg, realId)
-      .then((d: SessionDetail) => setMessages((prev) => mergeServerWithLocal(d.messages, prev)))
+      .then((d: SessionDetail) => {
+        setConversationTitle(d.session.title || null);
+        setMessages((prev) => mergeServerWithLocal(d.messages, prev));
+      })
       .catch(() => {});
   }, []);
 
@@ -375,6 +380,11 @@ export default function ChatScreen() {
           await Promise.all(uploaded.map((a) => api.deleteUpload(config, a.fileId).catch(() => {})));
           return false;
         }
+        // 与乐观消息插入分到下一帧：用户立即看不到附件且无法重复发送，
+        // 同时避免同一 Fabric 事务回收输入框和添加消息行。
+        requestAnimationFrame(() => {
+          if (activeReqRef.current === ph) setComposer((prev) => acceptComposerSubmission(prev));
+        });
         return true;
       } finally {
         sendingRef.current = false;
@@ -486,7 +496,7 @@ export default function ChatScreen() {
     <View style={styles.root}>
       <Stack.Screen
         options={{
-          title: isNew ? '新对话' : '对话',
+          title: conversationTitle || (isNew ? '新对话' : '对话'),
           headerLeft: () => (
             <View style={styles.headerLeft}>
               <Pressable

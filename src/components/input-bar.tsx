@@ -414,6 +414,7 @@ export function InputBar({
         <Pressable
           style={[styles.attachBtn, menuOpen && styles.attachBtnActive]}
           onPress={openAttachMenu}
+          disabled={disabled}
           accessibilityLabel="插入附件"
         >
           <Ionicons name="add" size={24} color={menuOpen ? colors.card : colors.accent} />
@@ -421,8 +422,8 @@ export function InputBar({
         <View
           style={[styles.iconBtn, recording && styles.micActive]}
           accessibilityLabel="按住录音"
-          onStartShouldSetResponder={() => true}
-          onMoveShouldSetResponder={() => true}
+          onStartShouldSetResponder={() => !disabled}
+          onMoveShouldSetResponder={() => !disabled}
           onResponderGrant={(e) => {
             pressY.current = e.nativeEvent.pageY;
             cancelledRef.current = false;
@@ -463,8 +464,8 @@ export function InputBar({
         />
         <TouchableOpacity
           onPress={send}
-          disabled={!canSend || !online}
-          style={[styles.sendBtn, (!canSend || !online) && styles.sendDisabled]}
+          disabled={disabled || !canSend || !online}
+          style={[styles.sendBtn, (disabled || !canSend || !online) && styles.sendDisabled]}
           accessibilityLabel="发送"
         >
           <Ionicons name="arrow-up" size={20} color={colors.card} />

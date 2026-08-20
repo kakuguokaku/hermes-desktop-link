@@ -18,7 +18,6 @@ import { PHONE_DEFAULT_MODEL } from '../lib/phone-models';
 import { clearConfig, getConfig, type ConnConfig, type FontSize } from '../lib/storage';
 import { radius, shadow, type Colors, type FontTokens } from '../lib/theme';
 import { useDisplayMode, useFont, useFontSize, useTheme } from '../lib/theme-context';
-import { AppLogo } from '../components/app-logo';
 
 const createStyles = (colors: Colors, font: FontTokens) =>
   StyleSheet.create({
@@ -77,7 +76,6 @@ const createStyles = (colors: Colors, font: FontTokens) =>
     modeItemActive: { backgroundColor: colors.accentFill, borderColor: colors.accentFill },
     modeLabel: { fontSize: font.caption, fontWeight: '600', color: colors.textSecondary },
     modeLabelActive: { color: colors.card },
-    aboutLogo: { alignItems: 'flex-start', marginBottom: 12 },
   });
 
 export default function SettingsScreen() {
@@ -280,12 +278,9 @@ export default function SettingsScreen() {
         <Text style={styles.note}>选择后立即生效；"跟随系统"会随手机系统深浅自动切换。</Text>
       </View>
 
-      {/* 关于（无图标） */}
+      {/* 关于 */}
       <Text style={styles.section}>关于</Text>
       <View style={styles.card}>
-        <View style={styles.aboutLogo}>
-          <AppLogo width={150} />
-        </View>
         <View style={styles.rowBetween}>
           <Text style={[styles.label, { fontWeight: '700', color: colors.textPrimary }]}>KAKU Hermes</Text>
           <Text style={styles.value}>v{Constants.expoConfig?.version ?? ''}</Text>

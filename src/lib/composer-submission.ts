@@ -15,7 +15,15 @@ export function beginComposerSubmission(state: ComposerSubmissionState): Compose
   return { ...state, submitting: true };
 }
 
-/** Clear the composer only after the bridge reports that the request settled. */
+/**
+ * The bridge accepted the request. Clear visible draft data in the following
+ * render while keeping the in-flight lock until the reply settles.
+ */
+export function acceptComposerSubmission(state: ComposerSubmissionState): ComposerSubmissionState {
+  return { attachments: [], resetEpoch: state.resetEpoch + 1, submitting: true };
+}
+
+/** The reply settled; only unlock because the composer was already cleared. */
 export function finishComposerSubmission(state: ComposerSubmissionState): ComposerSubmissionState {
-  return { attachments: [], resetEpoch: state.resetEpoch + 1, submitting: false };
+  return { ...state, submitting: false };
 }

@@ -58,8 +58,6 @@ const createStyles = (colors: Colors, font: FontTokens) =>
     pvText: { fontSize: font.body, color: colors.textBody, lineHeight: 20 },
     // 会话列表
     listTitle: { fontSize: font.tiny, fontWeight: '700', letterSpacing: 1, color: colors.textMuted, marginTop: 14, marginBottom: 6, marginLeft: 16 },
-    listHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginRight: 16 },
-    newChat: { color: colors.accent, fontSize: font.caption, fontWeight: '600' },
     // 底部发送
     bottom: { paddingHorizontal: 12, paddingVertical: 10, backgroundColor: colors.bg },
     sendBar: { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -213,12 +211,7 @@ export default function ShareScreen() {
       </View>
 
       {/* 会话列表 */}
-      <View style={styles.listHeader}>
-        <Text style={styles.listTitle}>发送到会话</Text>
-        <Pressable onPress={() => setSelectedId(createDefaultShareTarget())} hitSlop={8} accessibilityLabel="新建会话">
-          <Text style={styles.newChat}>新建会话</Text>
-        </Pressable>
-      </View>
+      <Text style={styles.listTitle}>发送到会话</Text>
       <View style={styles.flex}>
         {config ? (
           <ConversationList

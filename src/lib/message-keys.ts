@@ -32,12 +32,23 @@ export function withStableMessageKeys(messages: Message[]): Message[] {
 }
 
 /** 判断服务端快照是否已包含同一条消息（按角色+内容+附件数，用于去重本地乐观消息） */
+function comparableContent(content: string): string {
+  return String(content || '').replace(/@(image|file):\S+\s*/g, '').trim();
+}
+
+function hasHistoricalAttachment(content: string): boolean {
+  return /@(image|file):\S+/.test(String(content || ''));
+}
+
 function serverHasMessage(server: Message[], m: Message): boolean {
   return server.some(
     (s) =>
       s.role === m.role &&
-      s.content === m.content &&
-      (s.attachments?.length ?? 0) === (m.attachments?.length ?? 0)
+      comparableContent(s.content) === comparableContent(m.content) &&
+      (
+        (s.attachments?.length ?? 0) === (m.attachments?.length ?? 0) ||
+        (m.attachments?.length ?? 0) > 0 && hasHistoricalAttachment(s.content)
+      )
   );
 }
 

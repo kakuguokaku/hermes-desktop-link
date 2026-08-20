@@ -41,6 +41,16 @@ test('mergeServerWithLocal 服务端已确认的本地消息不重复', () => {
   assert.ok(merged[0].id && merged[0].id.startsWith('hist-'), '无 id 历史消息被补齐为稳定 id');
 });
 
+test('带历史图片标记的服务端消息确认本地图片后不重复显示', () => {
+  const prev = [
+    { id: 'local-user-r-image', role: 'user' as const, content: '照片里是什么', createdAt: null, attachments: [{ kind: 'image' as const, name: 'a.jpg', uri: 'file:///a.jpg' }] },
+  ];
+  const server = [userMsg('@image:C:\\uploads\\a.jpg 照片里是什么', '2026-01-01')];
+  const merged = mergeServerWithLocal(server, prev);
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].content, '@image:C:\\uploads\\a.jpg 照片里是什么');
+});
+
 test('mergeServerWithLocal 未确认的本地消息保留在尾部', () => {
   const prev = [
     { id: 'local-user-r9', role: 'user' as const, content: '待确认', createdAt: null, attachments: [{ kind: 'file' as const, name: 'a.pdf', size: 10 }] },
